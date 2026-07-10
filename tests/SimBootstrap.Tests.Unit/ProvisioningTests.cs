@@ -332,6 +332,47 @@ public class ProvisioningTests
     }
 
     [Fact]
+    public async Task OpenSshInstalledStep_CapturedInstalledCapabilityOutput_DoesNotInstall()
+    {
+        const string capturedCapabilityOutput = """
+Name : OpenSSH.Server~~~~0.0.1.0
+State : Installed
+DisplayName : ????
+Description : ????
+""";
+
+        var runner = new MockCommandRunner
+        {
+            CommandHandler = command =>
+            {
+                if (command.Contains("Get-WindowsCapability", StringComparison.OrdinalIgnoreCase))
+                {
+                    return new CommandResult(0, capturedCapabilityOutput, string.Empty);
+                }
+
+                return new CommandResult(1, string.Empty, $"Unexpected command: {command}");
+            }
+        };
+        var checker = new MockCapabilityChecker();
+        var config = new ProvisioningConfig
+        {
+            AuthorizedPublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI123456789",
+            ConfigureOpenSsh = true
+        };
+        var caps = await checker.CheckCapabilitiesAsync();
+        var context = new ProvisioningContext(runner, config, caps);
+        var step = new EnsureOpenSshServerInstalled();
+
+        var result = await step.ExecuteAsync(context, dryRun: false, CancellationToken.None);
+
+        Assert.Equal(ProvisioningStatus.Completed, result.Status);
+        Assert.Contains(result.Logs, log => log == "OpenSSH Server is already installed.");
+        Assert.Single(runner.RunCommands);
+        Assert.Contains("Get-WindowsCapability", runner.RunCommands[0], StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(runner.RunCommands, command => command.Contains("Add-WindowsCapability", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public async Task Steps_MockGitCheck_ExecutionBehavior()
     {
         var runner = new MockCommandRunner();

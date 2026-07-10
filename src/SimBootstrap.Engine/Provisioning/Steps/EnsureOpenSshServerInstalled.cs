@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using SimBootstrap.Contracts;
@@ -9,6 +10,10 @@ namespace SimBootstrap.Engine.Provisioning.Steps;
 
 public class EnsureOpenSshServerInstalled : IProvisioningStep
 {
+    private static readonly Regex InstalledStateRegex = new(
+        @"^\s*State\s*:\s*Installed\s*$",
+        RegexOptions.IgnoreCase | RegexOptions.Multiline | RegexOptions.CultureInvariant);
+
     public string Name => "EnsureOpenSshServerInstalled";
     public string Description => "Checks if the OpenSSH Server capability is installed on Windows, and installs it if missing.";
     public bool IsCritical => true;
@@ -52,7 +57,7 @@ public class EnsureOpenSshServerInstalled : IProvisioningStep
 
         logs.Add($"Capability info:\n{checkResult.StdOut}");
 
-        if (checkResult.StdOut.Contains("State : Installed", StringComparison.OrdinalIgnoreCase))
+        if (IsOpenSshServerInstalled(checkResult.StdOut))
         {
             logs.Add("OpenSSH Server is already installed.");
             return ProvisioningStepResult.Success(Name, logs);
@@ -78,7 +83,7 @@ public class EnsureOpenSshServerInstalled : IProvisioningStep
             TimeSpan.FromSeconds(30),
             cancellationToken);
 
-        if (verifyResult.Succeeded && verifyResult.StdOut.Contains("State : Installed", StringComparison.OrdinalIgnoreCase))
+        if (verifyResult.Succeeded && IsOpenSshServerInstalled(verifyResult.StdOut))
         {
             logs.Add("OpenSSH Server successfully installed and verified.");
             return ProvisioningStepResult.Success(Name, logs);
@@ -86,5 +91,10 @@ public class EnsureOpenSshServerInstalled : IProvisioningStep
 
         logs.Add("OpenSSH Server installation returned success, but verification still reports it as missing.");
         return ProvisioningStepResult.Failure(Name, "OpenSSH Server capability verification failed post-install.", logs);
+    }
+
+    private static bool IsOpenSshServerInstalled(string capabilityOutput)
+    {
+        return InstalledStateRegex.IsMatch(capabilityOutput);
     }
 }
