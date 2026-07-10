@@ -1,0 +1,8 @@
+{
+  "authorizedPublicKey": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAVjKLJLcwph2v6IzbKlbxoOGpQkmuSlTjYK9a8SANMo kokodede32433-cmd@users.noreply.github.com",
+  "installGit": true,
+  "installDotNet9": true,
+  "configureOpenSsh": true,
+  "configureFirewall": true,
+  "disableSleep": true
+}
