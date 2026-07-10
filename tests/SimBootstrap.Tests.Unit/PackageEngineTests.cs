@@ -117,7 +117,14 @@ public class PackageEngineTests
         var registry = new PackageRegistry(loader);
         await registry.DiscoverManifestsAsync(_testManifestsDir);
         var verifier = new PackageVerifier();
-        var engine = new BootstrapEngine(registry, verifier);
+        var planBuilder = new InstallPlanBuilder();
+        var providerRegistry = new InstallerProviderRegistry();
+        providerRegistry.Register(new MockMsiInstallerProvider());
+        var graphBuilder = new DependencyGraphBuilder(registry);
+        var cycleDetector = new DependencyCycleDetector();
+        var resolver = new PackageResolver(graphBuilder, cycleDetector);
+        
+        var engine = new BootstrapEngine(registry, verifier, planBuilder, providerRegistry, resolver);
 
         // Act
         var result = await engine.InstallPackageAsync("valid-pkg");
@@ -141,7 +148,14 @@ public class PackageEngineTests
         var registry = new PackageRegistry(loader);
         await registry.DiscoverManifestsAsync(_testManifestsDir);
         var verifier = new PackageVerifier();
-        var engine = new BootstrapEngine(registry, verifier);
+        var planBuilder = new InstallPlanBuilder();
+        var providerRegistry = new InstallerProviderRegistry();
+        providerRegistry.Register(new MockMsiInstallerProvider());
+        var graphBuilder = new DependencyGraphBuilder(registry);
+        var cycleDetector = new DependencyCycleDetector();
+        var resolver = new PackageResolver(graphBuilder, cycleDetector);
+
+        var engine = new BootstrapEngine(registry, verifier, planBuilder, providerRegistry, resolver);
 
         // Act
         var result = await engine.InstallPackageAsync("fail-verify-pkg");
@@ -160,7 +174,14 @@ public class PackageEngineTests
         var registry = new PackageRegistry(loader);
         await registry.DiscoverManifestsAsync(_testManifestsDir);
         var verifier = new PackageVerifier();
-        var engine = new BootstrapEngine(registry, verifier);
+        var planBuilder = new InstallPlanBuilder();
+        var providerRegistry = new InstallerProviderRegistry();
+        providerRegistry.Register(new MockMsiInstallerProvider());
+        var graphBuilder = new DependencyGraphBuilder(registry);
+        var cycleDetector = new DependencyCycleDetector();
+        var resolver = new PackageResolver(graphBuilder, cycleDetector);
+
+        var engine = new BootstrapEngine(registry, verifier, planBuilder, providerRegistry, resolver);
 
         // Act
         var result = await engine.InstallPackageAsync("unknown-pkg");
