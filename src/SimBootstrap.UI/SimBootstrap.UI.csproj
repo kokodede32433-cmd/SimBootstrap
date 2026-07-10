@@ -2,12 +2,12 @@
 
   <PropertyGroup>
     <TargetFramework>net9.0-windows</TargetFramework>
-    <UseWPF>true</UseWPF>
+    <UseWpf>true</UseWpf>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(OS)' != 'Windows_NT'">
     <TargetFramework>net9.0</TargetFramework>
-    <UseWPF>false</UseWPF>
+    <UseWpf>false</UseWpf>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(OS)' == 'Windows_NT'">
