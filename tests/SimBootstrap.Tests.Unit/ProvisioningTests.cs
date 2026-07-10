@@ -30,16 +30,21 @@ public class ProvisioningTests
     private class AuthorizedKeysMockCommandRunner : ICommandRunner
     {
         private readonly bool _failAcl;
+        private readonly bool _requireRecovery;
+        private readonly bool _failRecovery;
 
         public List<string> RunCommands { get; } = new();
         public bool SshDirectoryExists { get; private set; }
         public bool AuthorizedKeysExists { get; private set; }
         public int KeyAddCount { get; private set; }
         public int AclApplyCount { get; private set; }
+        public int RecoveryCount { get; private set; }
 
-        public AuthorizedKeysMockCommandRunner(bool failAcl = false)
+        public AuthorizedKeysMockCommandRunner(bool failAcl = false, bool requireRecovery = false, bool failRecovery = false)
         {
             _failAcl = failAcl;
+            _requireRecovery = requireRecovery;
+            _failRecovery = failRecovery;
         }
 
         public Task<CommandResult> RunPowerShellAsync(string command, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
@@ -48,9 +53,26 @@ public class ProvisioningTests
 
             if (!command.Contains("New-Item -ItemType Directory", StringComparison.OrdinalIgnoreCase) ||
                 !command.Contains("New-Item -ItemType File", StringComparison.OrdinalIgnoreCase) ||
-                !command.Contains("Test-Path -LiteralPath $authKeys", StringComparison.OrdinalIgnoreCase))
+                !command.Contains("Test-PathWithRepair -Path $authKeys", StringComparison.OrdinalIgnoreCase) ||
+                !command.Contains("Set-RequiredAcl -Path $sshDir", StringComparison.OrdinalIgnoreCase))
             {
                 return Task.FromResult(new CommandResult(1, string.Empty, "authorized_keys script did not create required paths safely"));
+            }
+
+            if (_requireRecovery)
+            {
+                if (!command.Contains("takeown @takeownArgs", StringComparison.OrdinalIgnoreCase) ||
+                    !command.Contains("& icacls $Path /grant $userGrant /grant \"SYSTEM:F\" /grant \"Administrators:F\"", StringComparison.OrdinalIgnoreCase))
+                {
+                    return Task.FromResult(new CommandResult(1, string.Empty, "authorized_keys script did not include ACL recovery commands"));
+                }
+
+                RecoveryCount++;
+
+                if (_failRecovery)
+                {
+                    return Task.FromResult(new CommandResult(1, string.Empty, "authorized_keys exists but permissions could not be repaired"));
+                }
             }
 
             SshDirectoryExists = true;
@@ -464,6 +486,66 @@ Description : ????
         Assert.Equal(ProvisioningStatus.Failed, result.Status);
         Assert.Contains("authorized_keys configuration failed: ACL configuration failed: mocked ACL failure", result.ErrorMessage);
         Assert.Contains(result.Logs, log => log.Contains("ACL configuration failed: mocked ACL failure", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task AuthorizedKeysStep_InaccessibleAuthorizedKeys_IncludesAclRecoveryCommands()
+    {
+        var runner = new AuthorizedKeysMockCommandRunner(requireRecovery: true);
+        var checker = new MockCapabilityChecker();
+        var config = new ProvisioningConfig
+        {
+            AuthorizedPublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI123456789 user@host"
+        };
+        var caps = await checker.CheckCapabilitiesAsync();
+        var context = new ProvisioningContext(runner, config, caps);
+        var step = new EnsureAuthorizedKeys();
+
+        var result = await step.ExecuteAsync(context, dryRun: false, CancellationToken.None);
+
+        Assert.Equal(ProvisioningStatus.Completed, result.Status);
+        Assert.Equal(1, runner.RecoveryCount);
+        Assert.Contains("takeown @takeownArgs", runner.RunCommands[0], StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("& icacls $Path /grant $userGrant /grant \"SYSTEM:F\" /grant \"Administrators:F\"", runner.RunCommands[0], StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task AuthorizedKeysStep_RecoveryFailure_ReturnsControlledError()
+    {
+        var runner = new AuthorizedKeysMockCommandRunner(requireRecovery: true, failRecovery: true);
+        var checker = new MockCapabilityChecker();
+        var config = new ProvisioningConfig
+        {
+            AuthorizedPublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI123456789 user@host"
+        };
+        var caps = await checker.CheckCapabilitiesAsync();
+        var context = new ProvisioningContext(runner, config, caps);
+        var step = new EnsureAuthorizedKeys();
+
+        var result = await step.ExecuteAsync(context, dryRun: false, CancellationToken.None);
+
+        Assert.Equal(ProvisioningStatus.Failed, result.Status);
+        Assert.Contains("authorized_keys exists but permissions could not be repaired", result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task AuthorizedKeysStep_SuccessfulRecovery_ContinuesToKeyInjection()
+    {
+        var runner = new AuthorizedKeysMockCommandRunner(requireRecovery: true);
+        var checker = new MockCapabilityChecker();
+        var config = new ProvisioningConfig
+        {
+            AuthorizedPublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI123456789 user@host"
+        };
+        var caps = await checker.CheckCapabilitiesAsync();
+        var context = new ProvisioningContext(runner, config, caps);
+        var step = new EnsureAuthorizedKeys();
+
+        var result = await step.ExecuteAsync(context, dryRun: false, CancellationToken.None);
+
+        Assert.Equal(ProvisioningStatus.Completed, result.Status);
+        Assert.Equal(1, runner.KeyAddCount);
+        Assert.Contains(result.Logs, log => log == "Public key added to authorized_keys.");
     }
 
     [Fact]
