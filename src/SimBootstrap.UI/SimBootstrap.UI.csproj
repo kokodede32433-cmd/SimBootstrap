@@ -1,19 +1,22 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <AssemblyName>SimBootstrap</AssemblyName>
+    <StartupObject>SimBootstrap.UI.Program</StartupObject>
     <TargetFramework>net9.0-windows</TargetFramework>
     <UseWpf>true</UseWpf>
     <UseWPF>true</UseWPF>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(OS)' != 'Windows_NT'">
+    <OutputType>Exe</OutputType>
     <TargetFramework>net9.0</TargetFramework>
     <UseWpf>false</UseWpf>
     <UseWPF>false</UseWPF>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(OS)' == 'Windows_NT'">
-    <OutputType>WinExe</OutputType>
+    <OutputType>Exe</OutputType>
   </PropertyGroup>
 
   <!-- Exclude WPF files on non-Windows platforms to allow compile on macOS -->
