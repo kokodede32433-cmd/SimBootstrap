@@ -25,6 +25,7 @@
     <Message Importance="High" Text="TargetFramework: $(TargetFramework)" />
     <Message Importance="High" Text="UseWpf: $(UseWpf)" />
     <Message Importance="High" Text="UseWPF: $(UseWPF)" />
+    <Message Importance="High" Text="References: @(ReferencePath)" />
     <Message Importance="High" Text="-----------------------" />
   </Target>
 
