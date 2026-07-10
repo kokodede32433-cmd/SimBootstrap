@@ -1,0 +1,7 @@
+{
+  "controlServerUrl": "https://control.simbootstrap.local",
+  "pairCode": "VALID_PAIR_123",
+  "pollingIntervalSeconds": 5,
+  "machineName": "SimHost-01",
+  "dryRun": true
+}
