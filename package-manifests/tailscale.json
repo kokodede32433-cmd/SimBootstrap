@@ -1,0 +1,16 @@
+{
+  "id": "tailscale",
+  "name": "Tailscale VPN",
+  "version": "1.70.0",
+  "installerType": "msi",
+  "downloadUrl": "https://pkgs.tailscale.com/stable/tailscale-setup-1.70.0-amd64.msi",
+  "installArguments": "/quiet /norestart",
+  "verifyRules": [
+    {
+      "type": "file",
+      "path": "C:\\Program Files\\Tailscale\\tailscale.exe",
+      "value": "1.70.0"
+    }
+  ],
+  "dependencies": []
+}

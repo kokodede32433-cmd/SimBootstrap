@@ -1,0 +1,16 @@
+{
+  "id": "steam",
+  "name": "Steam Client",
+  "version": "1.0.0.0",
+  "installerType": "exe",
+  "downloadUrl": "https://cdn.akamai.steamstatic.com/client/installer/SteamSetup.exe",
+  "installArguments": "/S",
+  "verifyRules": [
+    {
+      "type": "file",
+      "path": "C:\\Program Files (x86)\\Steam\\steam.exe",
+      "value": "present"
+    }
+  ],
+  "dependencies": []
+}

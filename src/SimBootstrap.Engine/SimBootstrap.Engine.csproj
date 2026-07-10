@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\SimBootstrap.Core\SimBootstrap.Core.csproj" />
+    <ProjectReference Include="..\SimBootstrap.Packages\SimBootstrap.Packages.csproj" />
+  </ItemGroup>
+</Project>

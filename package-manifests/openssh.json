@@ -1,0 +1,16 @@
+{
+  "id": "openssh",
+  "name": "OpenSSH Server",
+  "version": "9.5.0.0",
+  "installerType": "powershell",
+  "downloadUrl": "https://github.com/PowerShell/Win32-OpenSSH/releases/download/v9.5.0.0p1-Beta/OpenSSH-Win64.zip",
+  "installArguments": "-ExecutionPolicy Bypass -File install.ps1",
+  "verifyRules": [
+    {
+      "type": "service",
+      "path": "sshd",
+      "value": "Running"
+    }
+  ],
+  "dependencies": []
+}

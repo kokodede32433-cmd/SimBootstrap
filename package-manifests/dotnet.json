@@ -1,0 +1,16 @@
+{
+  "id": "dotnet-sdk-9",
+  "name": ".NET 9.0 SDK",
+  "version": "9.0.100",
+  "installerType": "exe",
+  "downloadUrl": "https://download.visualstudio.microsoft.com/download/pr/dotnet-sdk-9.0.100-win-x64.exe",
+  "installArguments": "/install /quiet /norestart",
+  "verifyRules": [
+    {
+      "type": "registry",
+      "path": "HKLM\\SOFTWARE\\dotnet\\Setup\\InstalledVersions\\x64\\sdk",
+      "value": "9.0.100"
+    }
+  ],
+  "dependencies": []
+}

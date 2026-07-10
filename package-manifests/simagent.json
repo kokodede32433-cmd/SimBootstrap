@@ -1,0 +1,18 @@
+{
+  "id": "simagent",
+  "name": "SimAgent Client",
+  "version": "1.0.0",
+  "installerType": "msi",
+  "downloadUrl": "https://crm.hi-racing.ru/downloads/SimAgentSetup.msi",
+  "installArguments": "/quiet /norestart",
+  "verifyRules": [
+    {
+      "type": "service",
+      "path": "SimAgent",
+      "value": "Running"
+    }
+  ],
+  "dependencies": [
+    "dotnet-sdk-9"
+  ]
+}

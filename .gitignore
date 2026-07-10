@@ -1,0 +1,23 @@
+# Build folders
+bin/
+obj/
+[Bb]in/
+[Oo]bj/
+
+# IDE files
+.vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Log and local settings files
+*.log
+logs/
+config/*.local.json
+config/packages.json
