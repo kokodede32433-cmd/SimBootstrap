@@ -37,10 +37,7 @@ public interface IPackageRegistry
     Task<bool> IsPackageInstalledAsync(string packageId, string version, CancellationToken cancellationToken = default);
 }
 
-public interface IPackageResolver
-{
-    IEnumerable<PackageManifest> ResolveDependencies(PackageManifest target, IEnumerable<PackageManifest> pool);
-}
+
 
 public interface IPackageManifestLoader
 {

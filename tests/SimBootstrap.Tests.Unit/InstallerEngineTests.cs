@@ -154,14 +154,17 @@ public class InstallerEngineTests
         var planBuilder = new InstallPlanBuilder();
         var providerRegistry = new InstallerProviderRegistry();
         providerRegistry.Register(new MockMsiInstallerProvider());
+        var graphBuilder = new DependencyGraphBuilder(registry);
+        var cycleDetector = new DependencyCycleDetector();
+        var resolver = new PackageResolver(graphBuilder, cycleDetector);
 
-        var engine = new BootstrapEngine(registry, verifier, planBuilder, providerRegistry);
+        var engine = new BootstrapEngine(registry, verifier, planBuilder, providerRegistry, resolver);
 
         // Act
         var result = await engine.InstallPackageAsync("valid-msi");
 
         // Assert
         Assert.True(result.IsSuccess);
-        Assert.Contains(result.Logs, l => l.Contains("[Installer] Mock installation completed successfully."));
+        Assert.Contains(result.Logs, l => l.Contains("[valid-msi] Mock installation completed successfully."));
     }
 }

@@ -12,17 +12,20 @@ public class BootstrapEngine : IBootstrapEngine
     private readonly IPackageVerifier _verifier;
     private readonly IInstallPlanBuilder _planBuilder;
     private readonly IInstallerProviderRegistry _providerRegistry;
+    private readonly IPackageResolver _resolver;
 
     public BootstrapEngine(
         PackageRegistry registry,
         IPackageVerifier verifier,
         IInstallPlanBuilder planBuilder,
-        IInstallerProviderRegistry providerRegistry)
+        IInstallerProviderRegistry providerRegistry,
+        IPackageResolver resolver)
     {
         _registry = registry;
         _verifier = verifier;
         _planBuilder = planBuilder;
         _providerRegistry = providerRegistry;
+        _resolver = resolver;
     }
 
     public Task<bool> RunBootstrapAsync(CancellationToken cancellationToken = default)
@@ -43,8 +46,9 @@ public class BootstrapEngine : IBootstrapEngine
         };
         session.Logs.Add($"Starting installation orchestration for package ID: '{packageId}'");
 
-        var manifest = _registry.GetPackageById(packageId);
-        if (manifest == null)
+        // Validate root package presence first
+        var rootManifest = _registry.GetPackageById(packageId);
+        if (rootManifest == null)
         {
             session.Status = "Failed";
             session.CompletedAtUtc = DateTime.UtcNow;
@@ -52,69 +56,114 @@ public class BootstrapEngine : IBootstrapEngine
             return new InstallationResult(false, session.SessionId, "Package not found", session.Logs);
         }
 
-        session.Logs.Add($"Loaded manifest: '{manifest.Name}' v{manifest.Version}");
+        session.Logs.Add("Resolving package dependencies...");
+        var resolutionResult = _resolver.ResolveDependencies(packageId);
 
-        session.Logs.Add("Running mock verification check...");
-        var verificationResult = await _verifier.VerifyAsync(manifest, cancellationToken);
-        if (!verificationResult)
+        if (resolutionResult.Status == DependencyResolutionStatus.MissingDependency)
         {
             session.Status = "Failed";
             session.CompletedAtUtc = DateTime.UtcNow;
-            session.Logs.Add("Error: Package verification failed.");
-            return new InstallationResult(false, session.SessionId, "Verification failed", session.Logs);
+            session.Logs.Add($"Error: Dependency resolution failed. Missing dependency: '{resolutionResult.MissingPackageId}'");
+            return new InstallationResult(false, session.SessionId, resolutionResult.ErrorMessage, session.Logs);
         }
 
-        session.Logs.Add("Verification succeeded. Resolving installer provider...");
-        
-        if (!Enum.TryParse<InstallerType>(manifest.InstallerType, true, out var installerType))
+        if (resolutionResult.Status == DependencyResolutionStatus.CycleDetected)
         {
             session.Status = "Failed";
             session.CompletedAtUtc = DateTime.UtcNow;
-            var error = $"Unsupported installer type: '{manifest.InstallerType}'";
-            session.Logs.Add($"Error: {error}");
-            return new InstallationResult(false, session.SessionId, error, session.Logs);
+            session.Logs.Add($"Error: Dependency resolution failed. Circular dependency path: {resolutionResult.ErrorMessage}");
+            return new InstallationResult(false, session.SessionId, resolutionResult.ErrorMessage, session.Logs);
         }
 
-        IInstallerProvider provider;
-        try
-        {
-            provider = _providerRegistry.GetProvider(installerType);
-        }
-        catch (KeyNotFoundException ex)
-        {
-            session.Status = "Failed";
-            session.CompletedAtUtc = DateTime.UtcNow;
-            session.Logs.Add($"Error: {ex.Message}");
-            return new InstallationResult(false, session.SessionId, ex.Message, session.Logs);
-        }
+        session.Logs.Add($"Resolved install order: {string.Join(" -> ", resolutionResult.OrderedPackageIds)}");
 
-        session.Logs.Add("Building installer execution plan...");
-        var sourcePath = $"C:\\SimBootstrap\\Downloads\\{manifest.Id}_{manifest.Version}.ext"; // mock source path
-        var plan = _planBuilder.BuildPlan(manifest, sourcePath);
-        session.Logs.Add($"Execution Plan Command: '{plan.Command}', Args: '{plan.Arguments}'");
-
-        session.Logs.Add("Executing installer provider...");
-        var installRequest = new InstallRequest(manifest.Id, installerType, sourcePath, manifest.InstallArguments);
-        var providerResult = await provider.InstallAsync(installRequest, cancellationToken);
-
-        foreach (var log in providerResult.Logs)
+        foreach (var depId in resolutionResult.OrderedPackageIds)
         {
-            session.Logs.Add($"[Installer] {log}");
-        }
+            cancellationToken.ThrowIfCancellationRequested();
 
-        if (!providerResult.IsSuccess)
-        {
-            session.Status = "Failed";
-            session.CompletedAtUtc = DateTime.UtcNow;
-            session.Logs.Add($"Error: Installer provider failed with ExitCode: {providerResult.ExitCode}. Message: {providerResult.ErrorMessage}");
-            return new InstallationResult(false, session.SessionId, providerResult.ErrorMessage ?? "Installer execution failed", session.Logs);
+            var depManifest = _registry.GetPackageById(depId);
+            if (depManifest == null)
+            {
+                session.Status = "Failed";
+                session.CompletedAtUtc = DateTime.UtcNow;
+                session.Logs.Add($"Error: Package manifest for resolved package '{depId}' not found.");
+                return new InstallationResult(false, session.SessionId, $"Manifest not found for resolved package: {depId}", session.Logs);
+            }
+
+            var isInstalled = await _registry.IsPackageInstalledAsync(depId, depManifest.Version, cancellationToken);
+            if (isInstalled)
+            {
+                session.Logs.Add($"Package '{depId}' v{depManifest.Version} is already installed. Skipping.");
+                continue;
+            }
+
+            session.Logs.Add($"Installing package: '{depId}'...");
+            session.Logs.Add($"Loaded manifest: '{depManifest.Name}' v{depManifest.Version}");
+
+            session.Logs.Add("Running mock verification check...");
+            var verificationResult = await _verifier.VerifyAsync(depManifest, cancellationToken);
+            if (!verificationResult)
+            {
+                session.Status = "Failed";
+                session.CompletedAtUtc = DateTime.UtcNow;
+                session.Logs.Add($"Error: Package verification failed for '{depId}'.");
+                return new InstallationResult(false, session.SessionId, "Verification failed", session.Logs);
+            }
+
+            session.Logs.Add("Verification succeeded. Resolving installer provider...");
+            
+            if (!Enum.TryParse<InstallerType>(depManifest.InstallerType, true, out var installerType))
+            {
+                session.Status = "Failed";
+                session.CompletedAtUtc = DateTime.UtcNow;
+                var error = $"Unsupported installer type: '{depManifest.InstallerType}'";
+                session.Logs.Add($"Error: {error}");
+                return new InstallationResult(false, session.SessionId, error, session.Logs);
+            }
+
+            IInstallerProvider provider;
+            try
+            {
+                provider = _providerRegistry.GetProvider(installerType);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                session.Status = "Failed";
+                session.CompletedAtUtc = DateTime.UtcNow;
+                session.Logs.Add($"Error: {ex.Message}");
+                return new InstallationResult(false, session.SessionId, ex.Message, session.Logs);
+            }
+
+            session.Logs.Add("Building installer execution plan...");
+            var sourcePath = $"C:\\SimBootstrap\\Downloads\\{depManifest.Id}_{depManifest.Version}.ext"; // mock source path
+            var plan = _planBuilder.BuildPlan(depManifest, sourcePath);
+            session.Logs.Add($"Execution Plan Command: '{plan.Command}', Args: '{plan.Arguments}'");
+
+            session.Logs.Add("Executing installer provider...");
+            var installRequest = new InstallRequest(depManifest.Id, installerType, sourcePath, depManifest.InstallArguments);
+            var providerResult = await provider.InstallAsync(installRequest, cancellationToken);
+
+            foreach (var log in providerResult.Logs)
+            {
+                session.Logs.Add($"[{depId}] {log}");
+            }
+
+            if (!providerResult.IsSuccess)
+            {
+                session.Status = "Failed";
+                session.CompletedAtUtc = DateTime.UtcNow;
+                session.Logs.Add($"Error: Installer provider failed with ExitCode: {providerResult.ExitCode}. Message: {providerResult.ErrorMessage}");
+                return new InstallationResult(false, session.SessionId, providerResult.ErrorMessage ?? "Installer execution failed", session.Logs);
+            }
+
+            // Track local registry state
+            await _registry.RegisterInstallationAsync(depManifest.Id, depManifest.Version, cancellationToken);
+            session.Logs.Add($"Successfully installed package: '{depId}'");
         }
 
         await session.CompleteSessionAsync(cancellationToken);
         session.Logs.Add("Installation completed successfully.");
-
-        // Track local registry state
-        await _registry.RegisterInstallationAsync(manifest.Id, manifest.Version, cancellationToken);
+        session.Logs.Add("Overall installation orchestration completed successfully.");
 
         return new InstallationResult(true, session.SessionId, null, session.Logs);
     }
