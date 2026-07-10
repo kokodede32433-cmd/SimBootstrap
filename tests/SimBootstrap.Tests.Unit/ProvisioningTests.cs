@@ -549,6 +549,29 @@ Description : ????
     }
 
     [Fact]
+    public async Task AuthorizedKeysStep_LocalizedWindows_UsesSidBasedAclIdentities()
+    {
+        var runner = new AuthorizedKeysMockCommandRunner();
+        var checker = new MockCapabilityChecker();
+        var config = new ProvisioningConfig
+        {
+            AuthorizedPublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI123456789 user@host"
+        };
+        var caps = await checker.CheckCapabilitiesAsync();
+        var context = new ProvisioningContext(runner, config, caps);
+        var step = new EnsureAuthorizedKeys();
+
+        var result = await step.ExecuteAsync(context, dryRun: false, CancellationToken.None);
+
+        Assert.Equal(ProvisioningStatus.Completed, result.Status);
+        Assert.Contains("[System.Security.Principal.WindowsIdentity]::GetCurrent().User", runner.RunCommands[0], StringComparison.Ordinal);
+        Assert.Contains("System.Security.Principal.SecurityIdentifier \"S-1-5-18\"", runner.RunCommands[0], StringComparison.Ordinal);
+        Assert.Contains("System.Security.Principal.SecurityIdentifier \"S-1-5-32-544\"", runner.RunCommands[0], StringComparison.Ordinal);
+        Assert.DoesNotContain("BUILTIN\\Administrators", runner.RunCommands[0], StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("NT AUTHORITY\\SYSTEM", runner.RunCommands[0], StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Steps_MockGitCheck_ExecutionBehavior()
     {
         var runner = new MockCommandRunner();

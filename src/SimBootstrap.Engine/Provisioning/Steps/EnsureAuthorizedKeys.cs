@@ -98,13 +98,13 @@ function Set-RequiredAcl {
     $acl.RemoveAccessRule($rule) | Out-Null
   }
 
-  $userAccount = [System.Security.Principal.NTAccount]($env:USERNAME)
-  $systemAccount = [System.Security.Principal.NTAccount]("NT AUTHORITY\SYSTEM")
-  $adminAccount = [System.Security.Principal.NTAccount]("BUILTIN\Administrators")
+  $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+  $systemSid = New-Object System.Security.Principal.SecurityIdentifier "S-1-5-18"
+  $adminsSid = New-Object System.Security.Principal.SecurityIdentifier "S-1-5-32-544"
 
-  $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($userAccount, "FullControl", "Allow")))
-  $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($systemAccount, "FullControl", "Allow")))
-  $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($adminAccount, "FullControl", "Allow")))
+  $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($currentUser, "FullControl", "Allow")))
+  $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($systemSid, "FullControl", "Allow")))
+  $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($adminsSid, "FullControl", "Allow")))
 
   Set-Acl -LiteralPath $Path -AclObject $acl -ErrorAction Stop
 }
