@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using SimBootstrap.Contracts;
@@ -38,58 +39,65 @@ public class EnsureAuthorizedKeys : IProvisioningStep
             return ProvisioningStepResult.Success(Name, logs);
         }
 
-        logs.Add("Verifying if the public key is present in authorized_keys...");
+        logs.Add("Configuring authorized_keys and SSH file permissions...");
 
-        // Script to check if public key is already in C:\Users\<user>\.ssh\authorized_keys
-        var checkScript = 
-            "$authKeys = Join-Path (Join-Path $env:USERPROFILE \".ssh\") \"authorized_keys\"; " +
-            "if (Test-Path $authKeys) { " +
-            "  $content = Get-Content $authKeys -ErrorAction SilentlyContinue; " +
-            "  if ($content -ne $null) { " +
-            "    $found = $false; " +
-            "    foreach ($line in $content) { " +
-            "      if ($line.Trim() -eq \"" + targetKey + "\") { $found = $true; break; } " +
-            "    }; " +
-            "    if ($found) { Write-Output \"Exists\" } else { Write-Output \"Missing\" } " +
-            "  } else { Write-Output \"Missing\" } " +
-            "} else { Write-Output \"Missing\" }";
+        var encodedKey = Convert.ToBase64String(Encoding.UTF8.GetBytes(targetKey));
+        var applyScript = """
+$ErrorActionPreference = 'Stop'
+$targetKey = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('__AUTHORIZED_KEY_BASE64__')).Trim()
+$sshDir = Join-Path $env:USERPROFILE ".ssh"
+if (!(Test-Path -LiteralPath $sshDir)) {
+  New-Item -ItemType Directory -Path $sshDir -Force | Out-Null
+}
+$authKeys = Join-Path $sshDir "authorized_keys"
+if (!(Test-Path -LiteralPath $authKeys)) {
+  New-Item -ItemType File -Path $authKeys -Force | Out-Null
+}
+if (!(Test-Path -LiteralPath $authKeys)) {
+  throw "authorized_keys path was not created: $authKeys"
+}
 
-        var checkResult = await context.CommandRunner.RunPowerShellAsync(checkScript, TimeSpan.FromSeconds(20), cancellationToken);
-        if (checkResult.Succeeded && checkResult.StdOut.Trim().Equals("Exists", StringComparison.OrdinalIgnoreCase))
-        {
-            logs.Add("Public key is already present in authorized_keys.");
-            return ProvisioningStepResult.Success(Name, logs);
-        }
+$content = @(Get-Content -LiteralPath $authKeys -ErrorAction SilentlyContinue)
+$found = $false
+foreach ($line in $content) {
+  if ($line.Trim() -eq $targetKey) {
+    $found = $true
+    break
+  }
+}
+if ($found) {
+  Write-Output "KeyAlreadyPresent"
+} else {
+  Add-Content -LiteralPath $authKeys -Value $targetKey -Encoding utf8
+  Write-Output "KeyAdded"
+}
 
-        logs.Add("Public key is missing from authorized_keys.");
+try {
+  $acl = Get-Acl -LiteralPath $authKeys -ErrorAction Stop
+  if ($null -eq $acl) {
+    throw "Get-Acl returned no ACL for $authKeys"
+  }
+  $acl.SetAccessRuleProtection($true, $false)
+  $rules = $acl.GetAccessRules($true, $true, [System.Security.Principal.NTAccount])
+  foreach ($rule in $rules) {
+    $acl.RemoveAccessRule($rule) | Out-Null
+  }
 
-        logs.Add("Writing public key and securing authorized_keys permissions...");
+  $userAccount = [System.Security.Principal.NTAccount]($env:USERNAME)
+  $systemAccount = [System.Security.Principal.NTAccount]("NT AUTHORITY\SYSTEM")
+  $adminAccount = [System.Security.Principal.NTAccount]("BUILTIN\Administrators")
 
-        var applyScript =
-            "$sshDir = Join-Path $env:USERPROFILE \".ssh\"; " +
-            "if (!(Test-Path $sshDir)) { New-Item -ItemType Directory -Path $sshDir -Force | Out-Null }; " +
-            "$authKeys = Join-Path $sshDir \"authorized_keys\"; " +
-            "Add-Content -Path $authKeys -Value \"" + targetKey + "\" -Force; " +
-            " " +
-            "try { " +
-            "  $acl = Get-Acl $authKeys; " +
-            "  $acl.SetAccessRuleProtection($true, $false); " +
-            "  $rules = $acl.GetAccessRules($true, $true, [System.Security.Principal.NTAccount]); " +
-            "  foreach ($rule in $rules) { $acl.RemoveAccessRule($rule) | Out-Null }; " +
-            " " +
-            "  $userAccount = [System.Security.Principal.NTAccount]($env:USERNAME); " +
-            "  $systemAccount = [System.Security.Principal.NTAccount](\"NT AUTHORITY\\SYSTEM\"); " +
-            "  $adminAccount = [System.Security.Principal.NTAccount](\"BUILTIN\\Administrators\"); " +
-            " " +
-            "  $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($userAccount, \"FullControl\", \"Allow\"))); " +
-            "  $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($systemAccount, \"FullControl\", \"Allow\"))); " +
-            "  $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($adminAccount, \"FullControl\", \"Allow\"))); " +
-            " " +
-            "  Set-Acl $authKeys $acl; " +
-            "  Write-Output \"Success\" " +
-            "} catch { " +
-            "  Write-Error $_.Exception.Message " +
-            "}";
+  $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($userAccount, "FullControl", "Allow")))
+  $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($systemAccount, "FullControl", "Allow")))
+  $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($adminAccount, "FullControl", "Allow")))
+
+  Set-Acl -LiteralPath $authKeys -AclObject $acl -ErrorAction Stop
+  Write-Output "AclApplied"
+} catch {
+  Write-Error ("ACL configuration failed: " + $_.Exception.Message)
+  exit 1
+}
+""".Replace("__AUTHORIZED_KEY_BASE64__", encodedKey, StringComparison.Ordinal);
 
         var applyResult = await context.CommandRunner.RunPowerShellAsync(applyScript, TimeSpan.FromSeconds(30), cancellationToken);
 
@@ -97,6 +105,15 @@ public class EnsureAuthorizedKeys : IProvisioningStep
         {
             logs.Add($"Failed to configure authorized_keys. Error: {applyResult.StdErr}");
             return ProvisioningStepResult.Failure(Name, $"authorized_keys configuration failed: {applyResult.StdErr}", logs);
+        }
+
+        if (applyResult.StdOut.Contains("KeyAlreadyPresent", StringComparison.OrdinalIgnoreCase))
+        {
+            logs.Add("Public key is already present in authorized_keys.");
+        }
+        else if (applyResult.StdOut.Contains("KeyAdded", StringComparison.OrdinalIgnoreCase))
+        {
+            logs.Add("Public key added to authorized_keys.");
         }
 
         logs.Add("authorized_keys configured and secured successfully.");

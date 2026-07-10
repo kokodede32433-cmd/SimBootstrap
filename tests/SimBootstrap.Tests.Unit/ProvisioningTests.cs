@@ -27,6 +27,51 @@ public class ProvisioningTests
         }
     }
 
+    private class AuthorizedKeysMockCommandRunner : ICommandRunner
+    {
+        private readonly bool _failAcl;
+
+        public List<string> RunCommands { get; } = new();
+        public bool SshDirectoryExists { get; private set; }
+        public bool AuthorizedKeysExists { get; private set; }
+        public int KeyAddCount { get; private set; }
+        public int AclApplyCount { get; private set; }
+
+        public AuthorizedKeysMockCommandRunner(bool failAcl = false)
+        {
+            _failAcl = failAcl;
+        }
+
+        public Task<CommandResult> RunPowerShellAsync(string command, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
+        {
+            RunCommands.Add(command);
+
+            if (!command.Contains("New-Item -ItemType Directory", StringComparison.OrdinalIgnoreCase) ||
+                !command.Contains("New-Item -ItemType File", StringComparison.OrdinalIgnoreCase) ||
+                !command.Contains("Test-Path -LiteralPath $authKeys", StringComparison.OrdinalIgnoreCase))
+            {
+                return Task.FromResult(new CommandResult(1, string.Empty, "authorized_keys script did not create required paths safely"));
+            }
+
+            SshDirectoryExists = true;
+            AuthorizedKeysExists = true;
+
+            if (_failAcl)
+            {
+                return Task.FromResult(new CommandResult(1, "KeyAdded", "ACL configuration failed: mocked ACL failure"));
+            }
+
+            AclApplyCount++;
+            if (KeyAddCount == 0)
+            {
+                KeyAddCount++;
+                return Task.FromResult(new CommandResult(0, "KeyAdded\nAclApplied", string.Empty));
+            }
+
+            return Task.FromResult(new CommandResult(0, "KeyAlreadyPresent\nAclApplied", string.Empty));
+        }
+    }
+
     private class MockCapabilityChecker : IWindowsCapabilityChecker
     {
         public WindowsCapabilities Capabilities { get; set; } = new()
@@ -370,6 +415,55 @@ Description : ????
         Assert.Single(runner.RunCommands);
         Assert.Contains("Get-WindowsCapability", runner.RunCommands[0], StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(runner.RunCommands, command => command.Contains("Add-WindowsCapability", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task AuthorizedKeysStep_FileMissing_CreatesFileAddsKeyOnceAndIsIdempotent()
+    {
+        var runner = new AuthorizedKeysMockCommandRunner();
+        var checker = new MockCapabilityChecker();
+        var config = new ProvisioningConfig
+        {
+            AuthorizedPublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI123456789 user@host"
+        };
+        var caps = await checker.CheckCapabilitiesAsync();
+        var context = new ProvisioningContext(runner, config, caps);
+        var step = new EnsureAuthorizedKeys();
+
+        var firstResult = await step.ExecuteAsync(context, dryRun: false, CancellationToken.None);
+        var secondResult = await step.ExecuteAsync(context, dryRun: false, CancellationToken.None);
+
+        Assert.Equal(ProvisioningStatus.Completed, firstResult.Status);
+        Assert.Equal(ProvisioningStatus.Completed, secondResult.Status);
+        Assert.True(runner.SshDirectoryExists);
+        Assert.True(runner.AuthorizedKeysExists);
+        Assert.Equal(1, runner.KeyAddCount);
+        Assert.Equal(2, runner.AclApplyCount);
+        Assert.Equal(2, runner.RunCommands.Count);
+        Assert.Contains(firstResult.Logs, log => log == "Public key added to authorized_keys.");
+        Assert.Contains(secondResult.Logs, log => log == "Public key is already present in authorized_keys.");
+        Assert.DoesNotContain(runner.RunCommands[0], config.AuthorizedPublicKey, StringComparison.Ordinal);
+        Assert.Contains("FromBase64String", runner.RunCommands[0], StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task AuthorizedKeysStep_AclFailure_ReturnsControlledError()
+    {
+        var runner = new AuthorizedKeysMockCommandRunner(failAcl: true);
+        var checker = new MockCapabilityChecker();
+        var config = new ProvisioningConfig
+        {
+            AuthorizedPublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI123456789 user@host"
+        };
+        var caps = await checker.CheckCapabilitiesAsync();
+        var context = new ProvisioningContext(runner, config, caps);
+        var step = new EnsureAuthorizedKeys();
+
+        var result = await step.ExecuteAsync(context, dryRun: false, CancellationToken.None);
+
+        Assert.Equal(ProvisioningStatus.Failed, result.Status);
+        Assert.Contains("authorized_keys configuration failed: ACL configuration failed: mocked ACL failure", result.ErrorMessage);
+        Assert.Contains(result.Logs, log => log.Contains("ACL configuration failed: mocked ACL failure", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
