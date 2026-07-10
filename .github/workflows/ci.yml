@@ -17,7 +17,7 @@ jobs:
       run: dotnet restore SimBootstrap.sln
 
     - name: Build Solution
-      run: dotnet build SimBootstrap.sln --no-restore --configuration Release
+      run: dotnet build SimBootstrap.sln --configuration Release
 
     - name: Run Tests
       run: dotnet test SimBootstrap.sln --no-build --configuration Release
