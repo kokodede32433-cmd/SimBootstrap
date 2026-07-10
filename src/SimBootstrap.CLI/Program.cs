@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Text.Json;
 using System.Threading.Tasks;
+using SimBootstrap.Agent;
 using SimBootstrap.Engine.Provisioning;
 
 namespace SimBootstrap.CLI;
@@ -16,12 +17,17 @@ public static class Program
             return;
         }
 
+        if (args.Length > 0 && args[0].Equals("agent", StringComparison.OrdinalIgnoreCase))
+        {
+            await RunAgentCliAsync(args);
+            return;
+        }
+
         Console.WriteLine("SimBootstrap CLI");
-        Console.WriteLine("Usage: SimBootstrap.CLI provisioning [options]");
-        Console.WriteLine("Options:");
-        Console.WriteLine("  --dry-run                Run in dry-run mode (default)");
-        Console.WriteLine("  --apply                  Apply provisioning steps");
-        Console.WriteLine("  --config <path>          Path to provisioning configuration file");
+        Console.WriteLine("Usage:");
+        Console.WriteLine("  SimBootstrap.CLI provisioning [options]");
+        Console.WriteLine("  SimBootstrap.CLI agent run-once [--config <path>]");
+        Console.WriteLine("  SimBootstrap.CLI agent validate-config [--config <path>]");
     }
 
     private static async Task RunProvisioningCliAsync(string[] args)
@@ -118,6 +124,59 @@ public static class Program
         catch (Exception ex)
         {
             Console.WriteLine($"[ERROR] Unhandled exception during provisioning: {ex.Message}");
+            Environment.Exit(1);
+        }
+    }
+
+    private static async Task RunAgentCliAsync(string[] args)
+    {
+        var command = args.Length > 1 ? args[1] : string.Empty;
+        var configPath = "config/agentsettings.json";
+
+        for (var i = 2; i < args.Length; i++)
+        {
+            if (args[i].Equals("--config", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+            {
+                configPath = args[i + 1];
+                i++;
+            }
+        }
+
+        try
+        {
+            if (command.Equals("validate-config", StringComparison.OrdinalIgnoreCase))
+            {
+                await AgentSettingsLoader.LoadAsync(configPath);
+                Console.WriteLine($"SUCCESS: Agent configuration is valid: {configPath}");
+                Environment.Exit(0);
+                return;
+            }
+
+            if (command.Equals("run-once", StringComparison.OrdinalIgnoreCase))
+            {
+                var settings = await AgentSettingsLoader.LoadAsync(configPath);
+                var runner = new AgentRunner(new MockControlServerClient(), new AgentLogWriter());
+                var result = await runner.RunOnceAsync(settings);
+
+                Console.WriteLine("\n=== AGENT RUN-ONCE EVENTS ===");
+                foreach (var entry in result.Events)
+                {
+                    Console.WriteLine(entry);
+                }
+
+                Console.WriteLine("\n=== SUMMARY ===");
+                Console.WriteLine(result.Success ? "SUCCESS: Agent run-once completed." : "FAILED: Agent run-once failed.");
+                Environment.Exit(result.Success ? 0 : 1);
+                return;
+            }
+
+            Console.WriteLine("[ERROR] Unknown agent command.");
+            Console.WriteLine("Usage: SimBootstrap.CLI agent [run-once|validate-config] [--config <path>]");
+            Environment.Exit(1);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ERROR] Agent command failed: {ex.Message}");
             Environment.Exit(1);
         }
     }
