@@ -16,16 +16,6 @@
     <OutputType>WinExe</OutputType>
   </PropertyGroup>
 
-  <Target Name="PrintDiagnosticInfo" BeforeTargets="MarkupCompilePass1;BeforeBuild">
-    <Message Importance="High" Text="--- DIAGNOSTIC INFO ---" />
-    <Message Importance="High" Text="OS: $(OS)" />
-    <Message Importance="High" Text="TargetFramework: $(TargetFramework)" />
-    <Message Importance="High" Text="UseWpf: $(UseWpf)" />
-    <Message Importance="High" Text="UseWPF: $(UseWPF)" />
-    <Message Importance="High" Text="References: @(ReferencePath)" />
-    <Message Importance="High" Text="-----------------------" />
-  </Target>
-
   <!-- Exclude WPF files on non-Windows platforms to allow compile on macOS -->
   <ItemGroup Condition="'$(OS)' != 'Windows_NT'">
     <Compile Remove="**\*.xaml.cs" />

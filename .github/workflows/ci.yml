@@ -14,10 +14,10 @@ jobs:
     - uses: actions/checkout@v4
 
     - name: Restore dependencies
-      run: dotnet restore SimBootstrap.sln
+      run: dotnet restore SimBootstrap.CI.sln
 
     - name: Build Solution
-      run: dotnet build SimBootstrap.sln --configuration Release
+      run: dotnet build SimBootstrap.CI.sln
 
     - name: Run Tests
-      run: dotnet test SimBootstrap.sln --no-build --configuration Release
+      run: dotnet test SimBootstrap.CI.sln
