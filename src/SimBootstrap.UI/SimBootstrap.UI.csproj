@@ -3,16 +3,27 @@
   <PropertyGroup>
     <TargetFramework>net9.0-windows</TargetFramework>
     <UseWpf>true</UseWpf>
+    <UseWPF>true</UseWPF>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(OS)' != 'Windows_NT'">
     <TargetFramework>net9.0</TargetFramework>
     <UseWpf>false</UseWpf>
+    <UseWPF>false</UseWPF>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(OS)' == 'Windows_NT'">
     <OutputType>WinExe</OutputType>
   </PropertyGroup>
+
+  <Target Name="PrintDiagnosticInfo" BeforeTargets="Build">
+    <Message Importance="High" Text="--- DIAGNOSTIC INFO ---" />
+    <Message Importance="High" Text="OS: $(OS)" />
+    <Message Importance="High" Text="TargetFramework: $(TargetFramework)" />
+    <Message Importance="High" Text="UseWpf: $(UseWpf)" />
+    <Message Importance="High" Text="UseWPF: $(UseWPF)" />
+    <Message Importance="High" Text="-----------------------" />
+  </Target>
 
   <!-- Exclude WPF files on non-Windows platforms to allow compile on macOS -->
   <ItemGroup Condition="'$(OS)' != 'Windows_NT'">
