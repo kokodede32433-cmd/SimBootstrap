@@ -1,0 +1,6 @@
+{
+  "agentId": "local-dev-agent",
+  "pairCode": "LOCAL-PAIR-CODE",
+  "mockControlServerUrl": "mock://local-control",
+  "heartbeatIntervalSeconds": 60
+}
