@@ -1,0 +1,7 @@
+{
+  "id": "invalid-json",
+  "name": "Malformed JSON",
+  "version": "1.0.0",
+  "installerType": "exe"
+  "downloadUrl": "missing-comma"
+}
