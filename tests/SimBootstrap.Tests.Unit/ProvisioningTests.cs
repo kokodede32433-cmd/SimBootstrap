@@ -32,6 +32,9 @@ public class ProvisioningTests
         private readonly bool _failAcl;
         private readonly bool _requireRecovery;
         private readonly bool _failRecovery;
+        private readonly bool _existingHasKey;
+        private readonly bool _failReplace;
+        private readonly bool _failVerification;
 
         public List<string> RunCommands { get; } = new();
         public bool SshDirectoryExists { get; private set; }
@@ -39,12 +42,22 @@ public class ProvisioningTests
         public int KeyAddCount { get; private set; }
         public int AclApplyCount { get; private set; }
         public int RecoveryCount { get; private set; }
+        public int ReplaceCount { get; private set; }
 
-        public AuthorizedKeysMockCommandRunner(bool failAcl = false, bool requireRecovery = false, bool failRecovery = false)
+        public AuthorizedKeysMockCommandRunner(
+            bool failAcl = false,
+            bool requireRecovery = false,
+            bool failRecovery = false,
+            bool existingHasKey = false,
+            bool failReplace = false,
+            bool failVerification = false)
         {
             _failAcl = failAcl;
             _requireRecovery = requireRecovery;
             _failRecovery = failRecovery;
+            _existingHasKey = existingHasKey;
+            _failReplace = failReplace;
+            _failVerification = failVerification;
         }
 
         public Task<CommandResult> RunPowerShellAsync(string command, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
@@ -52,17 +65,24 @@ public class ProvisioningTests
             RunCommands.Add(command);
 
             if (!command.Contains("New-Item -ItemType Directory", StringComparison.OrdinalIgnoreCase) ||
-                !command.Contains("New-Item -ItemType File", StringComparison.OrdinalIgnoreCase) ||
+                !command.Contains("Set-Content -LiteralPath $authKeysTmp", StringComparison.OrdinalIgnoreCase) ||
+                !command.Contains("Move-Item -LiteralPath $authKeysTmp -Destination $authKeys", StringComparison.OrdinalIgnoreCase) ||
                 !command.Contains("Test-PathWithRepair -Path $authKeys", StringComparison.OrdinalIgnoreCase) ||
                 !command.Contains("Set-RequiredAcl -Path $sshDir", StringComparison.OrdinalIgnoreCase))
             {
-                return Task.FromResult(new CommandResult(1, string.Empty, "authorized_keys script did not create required paths safely"));
+                return Task.FromResult(new CommandResult(1, string.Empty, "authorized_keys script did not use atomic rewrite safely"));
+            }
+
+            if (command.Contains("Add-Content -LiteralPath $authKeys", StringComparison.OrdinalIgnoreCase))
+            {
+                return Task.FromResult(new CommandResult(1, string.Empty, "authorized_keys script must not append to existing authorized_keys"));
             }
 
             if (_requireRecovery)
             {
-                if (!command.Contains("takeown @takeownArgs", StringComparison.OrdinalIgnoreCase) ||
-                    !command.Contains("& icacls $Path /grant $userGrant /grant \"SYSTEM:F\" /grant \"Administrators:F\"", StringComparison.OrdinalIgnoreCase))
+                if (!command.Contains("& takeown /F $Path /A", StringComparison.OrdinalIgnoreCase) ||
+                    !command.Contains("& icacls $Path /inheritance:r", StringComparison.OrdinalIgnoreCase) ||
+                    !command.Contains("/grant \"*S-1-5-18:F\" /grant \"*S-1-5-32-544:F\"", StringComparison.OrdinalIgnoreCase))
                 {
                     return Task.FromResult(new CommandResult(1, string.Empty, "authorized_keys script did not include ACL recovery commands"));
                 }
@@ -84,13 +104,25 @@ public class ProvisioningTests
             }
 
             AclApplyCount++;
-            if (KeyAddCount == 0)
+            if (_failReplace)
             {
-                KeyAddCount++;
-                return Task.FromResult(new CommandResult(0, "KeyAdded\nAclApplied", string.Empty));
+                return Task.FromResult(new CommandResult(1, "KeyAdded", "Replace authorized_keys failed: mocked replace failure"));
             }
 
-            return Task.FromResult(new CommandResult(0, "KeyAlreadyPresent\nAclApplied", string.Empty));
+            ReplaceCount++;
+
+            if (_failVerification)
+            {
+                return Task.FromResult(new CommandResult(1, "KeyAdded\nAclApplied", "Verify authorized_keys failed: mocked verification failure"));
+            }
+
+            if (_existingHasKey || KeyAddCount > 0)
+            {
+                return Task.FromResult(new CommandResult(0, "KeyAlreadyPresent\nAclApplied\nVerified", string.Empty));
+            }
+
+            KeyAddCount++;
+            return Task.FromResult(new CommandResult(0, "KeyAdded\nAclApplied\nVerified", string.Empty));
         }
     }
 
@@ -461,11 +493,14 @@ Description : ????
         Assert.True(runner.AuthorizedKeysExists);
         Assert.Equal(1, runner.KeyAddCount);
         Assert.Equal(2, runner.AclApplyCount);
+        Assert.Equal(2, runner.ReplaceCount);
         Assert.Equal(2, runner.RunCommands.Count);
         Assert.Contains(firstResult.Logs, log => log == "Public key added to authorized_keys.");
         Assert.Contains(secondResult.Logs, log => log == "Public key is already present in authorized_keys.");
         Assert.DoesNotContain(runner.RunCommands[0], config.AuthorizedPublicKey, StringComparison.Ordinal);
         Assert.Contains("FromBase64String", runner.RunCommands[0], StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Set-Content -LiteralPath $authKeysTmp", runner.RunCommands[0], StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Add-Content -LiteralPath $authKeys", runner.RunCommands[0], StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -505,8 +540,9 @@ Description : ????
 
         Assert.Equal(ProvisioningStatus.Completed, result.Status);
         Assert.Equal(1, runner.RecoveryCount);
-        Assert.Contains("takeown @takeownArgs", runner.RunCommands[0], StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("& icacls $Path /grant $userGrant /grant \"SYSTEM:F\" /grant \"Administrators:F\"", runner.RunCommands[0], StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("& takeown /F $Path /A", runner.RunCommands[0], StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("& icacls $Path /inheritance:r", runner.RunCommands[0], StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("/grant \"*S-1-5-18:F\" /grant \"*S-1-5-32-544:F\"", runner.RunCommands[0], StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -545,6 +581,7 @@ Description : ????
 
         Assert.Equal(ProvisioningStatus.Completed, result.Status);
         Assert.Equal(1, runner.KeyAddCount);
+        Assert.Equal(1, runner.ReplaceCount);
         Assert.Contains(result.Logs, log => log == "Public key added to authorized_keys.");
     }
 
@@ -569,6 +606,107 @@ Description : ????
         Assert.Contains("System.Security.Principal.SecurityIdentifier \"S-1-5-32-544\"", runner.RunCommands[0], StringComparison.Ordinal);
         Assert.DoesNotContain("BUILTIN\\Administrators", runner.RunCommands[0], StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("NT AUTHORITY\\SYSTEM", runner.RunCommands[0], StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task AuthorizedKeysStep_ExistingInaccessibleFile_UsesRecoveryAndRewritePath()
+    {
+        var runner = new AuthorizedKeysMockCommandRunner(requireRecovery: true);
+        var checker = new MockCapabilityChecker();
+        var config = new ProvisioningConfig
+        {
+            AuthorizedPublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI123456789 user@host"
+        };
+        var caps = await checker.CheckCapabilitiesAsync();
+        var context = new ProvisioningContext(runner, config, caps);
+        var step = new EnsureAuthorizedKeys();
+
+        var result = await step.ExecuteAsync(context, dryRun: false, CancellationToken.None);
+
+        Assert.Equal(ProvisioningStatus.Completed, result.Status);
+        Assert.Equal(1, runner.RecoveryCount);
+        Assert.Equal(1, runner.ReplaceCount);
+        Assert.Contains("Set-Content -LiteralPath $authKeysTmp", runner.RunCommands[0], StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Move-Item -LiteralPath $authKeys -Destination $authKeysBak", runner.RunCommands[0], StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Move-Item -LiteralPath $authKeysTmp -Destination $authKeys", runner.RunCommands[0], StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task AuthorizedKeysStep_ExistingFileWithoutKey_AddsKey()
+    {
+        var runner = new AuthorizedKeysMockCommandRunner();
+        var checker = new MockCapabilityChecker();
+        var config = new ProvisioningConfig
+        {
+            AuthorizedPublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI123456789 user@host"
+        };
+        var caps = await checker.CheckCapabilitiesAsync();
+        var context = new ProvisioningContext(runner, config, caps);
+        var step = new EnsureAuthorizedKeys();
+
+        var result = await step.ExecuteAsync(context, dryRun: false, CancellationToken.None);
+
+        Assert.Equal(ProvisioningStatus.Completed, result.Status);
+        Assert.Equal(1, runner.KeyAddCount);
+        Assert.Contains(result.Logs, log => log == "Public key added to authorized_keys.");
+    }
+
+    [Fact]
+    public async Task AuthorizedKeysStep_ExistingFileWithKey_DoesNotDuplicate()
+    {
+        var runner = new AuthorizedKeysMockCommandRunner(existingHasKey: true);
+        var checker = new MockCapabilityChecker();
+        var config = new ProvisioningConfig
+        {
+            AuthorizedPublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI123456789 user@host"
+        };
+        var caps = await checker.CheckCapabilitiesAsync();
+        var context = new ProvisioningContext(runner, config, caps);
+        var step = new EnsureAuthorizedKeys();
+
+        var result = await step.ExecuteAsync(context, dryRun: false, CancellationToken.None);
+
+        Assert.Equal(ProvisioningStatus.Completed, result.Status);
+        Assert.Equal(0, runner.KeyAddCount);
+        Assert.Contains(result.Logs, log => log == "Public key is already present in authorized_keys.");
+    }
+
+    [Fact]
+    public async Task AuthorizedKeysStep_ReplaceFailure_ReturnsControlledError()
+    {
+        var runner = new AuthorizedKeysMockCommandRunner(failReplace: true);
+        var checker = new MockCapabilityChecker();
+        var config = new ProvisioningConfig
+        {
+            AuthorizedPublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI123456789 user@host"
+        };
+        var caps = await checker.CheckCapabilitiesAsync();
+        var context = new ProvisioningContext(runner, config, caps);
+        var step = new EnsureAuthorizedKeys();
+
+        var result = await step.ExecuteAsync(context, dryRun: false, CancellationToken.None);
+
+        Assert.Equal(ProvisioningStatus.Failed, result.Status);
+        Assert.Contains("Replace authorized_keys failed: mocked replace failure", result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task AuthorizedKeysStep_FinalVerificationFailure_ReturnsControlledError()
+    {
+        var runner = new AuthorizedKeysMockCommandRunner(failVerification: true);
+        var checker = new MockCapabilityChecker();
+        var config = new ProvisioningConfig
+        {
+            AuthorizedPublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI123456789 user@host"
+        };
+        var caps = await checker.CheckCapabilitiesAsync();
+        var context = new ProvisioningContext(runner, config, caps);
+        var step = new EnsureAuthorizedKeys();
+
+        var result = await step.ExecuteAsync(context, dryRun: false, CancellationToken.None);
+
+        Assert.Equal(ProvisioningStatus.Failed, result.Status);
+        Assert.Contains("Verify authorized_keys failed: mocked verification failure", result.ErrorMessage);
     }
 
     [Fact]

@@ -52,14 +52,19 @@ function Repair-PathAccess {
     [Parameter(Mandatory = $true)][string]$Description
   )
 
-  $takeownArgs = @('/F', $Path, '/A')
-  & takeown @takeownArgs | Out-Null
+  & takeown /F $Path /A | Out-Null
   if ($LASTEXITCODE -ne 0) {
     throw "$Description exists but permissions could not be repaired"
   }
 
-  $userGrant = "$env:USERNAME:F"
-  & icacls $Path /grant $userGrant /grant "SYSTEM:F" /grant "Administrators:F" | Out-Null
+  $currentSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+  $currentGrant = "*$currentSid`:F"
+  & icacls $Path /inheritance:r | Out-Null
+  if ($LASTEXITCODE -ne 0) {
+    throw "$Description exists but permissions could not be repaired"
+  }
+
+  & icacls $Path /grant $currentGrant /grant "*S-1-5-18:F" /grant "*S-1-5-32-544:F" | Out-Null
   if ($LASTEXITCODE -ne 0) {
     throw "$Description exists but permissions could not be repaired"
   }
@@ -113,17 +118,33 @@ $sshDir = Join-Path $env:USERPROFILE ".ssh"
 if (!(Test-PathWithRepair -Path $sshDir -Description ".ssh directory")) {
   New-Item -ItemType Directory -Path $sshDir -Force | Out-Null
 }
+Repair-PathAccess -Path $sshDir -Description ".ssh directory"
 Set-RequiredAcl -Path $sshDir
 
 $authKeys = Join-Path $sshDir "authorized_keys"
-if (!(Test-PathWithRepair -Path $authKeys -Description "authorized_keys")) {
-  New-Item -ItemType File -Path $authKeys -Force | Out-Null
-}
-if (!(Test-PathWithRepair -Path $authKeys -Description "authorized_keys")) {
-  throw "authorized_keys exists but permissions could not be repaired"
+$authKeysTmp = Join-Path $sshDir "authorized_keys.tmp"
+$authKeysBak = Join-Path $sshDir "authorized_keys.bak"
+$authKeysExists = Test-PathWithRepair -Path $authKeys -Description "authorized_keys"
+if ($authKeysExists) {
+  Repair-PathAccess -Path $authKeys -Description "authorized_keys"
 }
 
-$content = @(Get-Content -LiteralPath $authKeys -ErrorAction SilentlyContinue)
+$content = @()
+if ($authKeysExists) {
+  try {
+    $content = @(Get-Content -LiteralPath $authKeys -ErrorAction Stop)
+  } catch [System.UnauthorizedAccessException] {
+    Repair-PathAccess -Path $authKeys -Description "authorized_keys"
+    try {
+      $content = @(Get-Content -LiteralPath $authKeys -ErrorAction Stop)
+    } catch {
+      throw "Read existing authorized_keys failed: $($_.Exception.Message)"
+    }
+  } catch {
+    throw "Read existing authorized_keys failed: $($_.Exception.Message)"
+  }
+}
+
 $found = $false
 foreach ($line in $content) {
   if ($line.Trim() -eq $targetKey) {
@@ -131,11 +152,43 @@ foreach ($line in $content) {
     break
   }
 }
+$finalLines = New-Object 'System.Collections.Generic.List[string]'
+foreach ($line in $content) {
+  $finalLines.Add($line)
+}
 if ($found) {
   Write-Output "KeyAlreadyPresent"
 } else {
-  Add-Content -LiteralPath $authKeys -Value $targetKey -Encoding utf8
+  $finalLines.Add($targetKey)
   Write-Output "KeyAdded"
+}
+
+try {
+  Set-Content -LiteralPath $authKeysTmp -Value $finalLines -Encoding utf8 -Force -ErrorAction Stop
+} catch {
+  Write-Error ("Write temporary authorized_keys failed: " + $_.Exception.Message)
+  exit 1
+}
+
+try {
+  Set-RequiredAcl -Path $authKeysTmp
+} catch {
+  Write-Error ("ACL configuration failed: " + $_.Exception.Message)
+  exit 1
+}
+
+try {
+  if (Test-PathWithRepair -Path $authKeys -Description "authorized_keys") {
+    Repair-PathAccess -Path $authKeys -Description "authorized_keys"
+    if (Test-Path -LiteralPath $authKeysBak -ErrorAction SilentlyContinue) {
+      Remove-Item -LiteralPath $authKeysBak -Force -ErrorAction Stop
+    }
+    Move-Item -LiteralPath $authKeys -Destination $authKeysBak -Force -ErrorAction Stop
+  }
+  Move-Item -LiteralPath $authKeysTmp -Destination $authKeys -Force -ErrorAction Stop
+} catch {
+  Write-Error ("Replace authorized_keys failed: " + $_.Exception.Message)
+  exit 1
 }
 
 try {
@@ -143,6 +196,27 @@ try {
   Write-Output "AclApplied"
 } catch {
   Write-Error ("ACL configuration failed: " + $_.Exception.Message)
+  exit 1
+}
+
+try {
+  if (!(Test-PathWithRepair -Path $authKeys -Description "authorized_keys")) {
+    throw "authorized_keys file does not exist after replacement"
+  }
+  $verifiedContent = @(Get-Content -LiteralPath $authKeys -ErrorAction Stop)
+  $verified = $false
+  foreach ($line in $verifiedContent) {
+    if ($line.Trim() -eq $targetKey) {
+      $verified = $true
+      break
+    }
+  }
+  if (!$verified) {
+    throw "authorized_keys does not contain target public key after replacement"
+  }
+  Write-Output "Verified"
+} catch {
+  Write-Error ("Verify authorized_keys failed: " + $_.Exception.Message)
   exit 1
 }
 """.Replace("__AUTHORIZED_KEY_BASE64__", encodedKey, StringComparison.Ordinal);
