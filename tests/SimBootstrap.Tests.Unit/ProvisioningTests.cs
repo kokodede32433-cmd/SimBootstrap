@@ -36,9 +36,11 @@ public class ProvisioningTests
             PowerShellVersion = "7.4.0",
             IsWinGetAvailable = true
         };
+        public int Calls { get; private set; }
 
         public Task<WindowsCapabilities> CheckCapabilitiesAsync(CancellationToken cancellationToken = default)
         {
+            Calls++;
             return Task.FromResult(Capabilities);
         }
     }
@@ -203,6 +205,133 @@ public class ProvisioningTests
     }
 
     [Fact]
+    public async Task Engine_DryRunNonAdmin_DoesNotExecutePrivilegedCommands()
+    {
+        var runner = new MockCommandRunner
+        {
+            CommandHandler = command =>
+            {
+                if (command.Contains("git --version", StringComparison.OrdinalIgnoreCase))
+                {
+                    return new CommandResult(0, "git version 2.45.0.windows.1", string.Empty);
+                }
+
+                if (command.Contains("dotnet --list-sdks", StringComparison.OrdinalIgnoreCase))
+                {
+                    return new CommandResult(0, "9.0.100 [C:\\Program Files\\dotnet\\sdk]", string.Empty);
+                }
+
+                if (command.Contains("winget --version", StringComparison.OrdinalIgnoreCase))
+                {
+                    return new CommandResult(0, "v1.8.0", string.Empty);
+                }
+
+                return new CommandResult(1, string.Empty, $"Unexpected command: {command}");
+            }
+        };
+        var checker = new MockCapabilityChecker
+        {
+            Capabilities = new WindowsCapabilities
+            {
+                WindowsVersion = "Windows 11 Pro Mock",
+                IsAdmin = false,
+                PowerShellVersion = "7.4.0",
+                IsWinGetAvailable = true
+            }
+        };
+
+        var engine = new ProvisioningEngine(runner, checker, isWindowsProvider: () => true);
+        var config = new ProvisioningConfig
+        {
+            AuthorizedPublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI123456789",
+            InstallGit = true,
+            InstallDotNet9 = true,
+            ConfigureOpenSsh = true,
+            ConfigureFirewall = true,
+            DisableSleep = true
+        };
+
+        var result = await engine.RunProvisioningAsync(config, dryRun: true);
+
+        Assert.True(result.Success);
+        Assert.DoesNotContain(runner.RunCommands, IsPrivilegedProvisioningCommand);
+    }
+
+    [Fact]
+    public async Task Engine_ApplyNonAdmin_FailsBeforePrivilegedSteps()
+    {
+        var runner = new MockCommandRunner();
+        var checker = new MockCapabilityChecker
+        {
+            Capabilities = new WindowsCapabilities
+            {
+                WindowsVersion = "Windows 11 Pro Mock",
+                IsAdmin = false,
+                PowerShellVersion = "7.4.0",
+                IsWinGetAvailable = true
+            }
+        };
+        var step = new MockStep("PrivilegedStep", isCritical: true)
+        {
+            ExecuteHandler = (_, _) => ProvisioningStepResult.Success("PrivilegedStep")
+        };
+
+        var engine = new ProvisioningEngine(runner, checker, new List<IProvisioningStep> { step }, isWindowsProvider: () => true);
+        var config = new ProvisioningConfig
+        {
+            AuthorizedPublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI123456789",
+            InstallGit = true
+        };
+
+        var result = await engine.RunProvisioningAsync(config, dryRun: false);
+
+        Assert.False(result.Success);
+        Assert.Empty(result.StepResults);
+        Assert.Empty(runner.RunCommands);
+        Assert.Contains(result.EngineLogs, log => log.Message == "Administrator privileges are required for --apply.");
+    }
+
+    [Fact]
+    public async Task Steps_DryRunPrivilegedSteps_ReturnSimulatedSuccessWithoutCommands()
+    {
+        var runner = new MockCommandRunner
+        {
+            CommandHandler = command => new CommandResult(1, string.Empty, $"Unexpected command: {command}")
+        };
+        var checker = new MockCapabilityChecker();
+        var config = new ProvisioningConfig
+        {
+            AuthorizedPublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI123456789",
+            InstallGit = true,
+            InstallDotNet9 = true,
+            ConfigureOpenSsh = true,
+            ConfigureFirewall = true,
+            DisableSleep = true
+        };
+        var caps = await checker.CheckCapabilitiesAsync();
+        var context = new ProvisioningContext(runner, config, caps);
+        var steps = new IProvisioningStep[]
+        {
+            new EnsureOpenSshServerInstalled(),
+            new EnsureSshdRunning(),
+            new EnsureSshdAutostart(),
+            new EnsureFirewallRuleForSsh(),
+            new EnsureAuthorizedKeys(),
+            new EnsureNoSleepPowerPlan()
+        };
+
+        foreach (var step in steps)
+        {
+            var result = await step.ExecuteAsync(context, dryRun: true, CancellationToken.None);
+
+            Assert.Equal(ProvisioningStatus.Completed, result.Status);
+            Assert.Contains(result.Logs, log => log.Contains("[Dry-run]", StringComparison.OrdinalIgnoreCase));
+        }
+
+        Assert.Empty(runner.RunCommands);
+    }
+
+    [Fact]
     public async Task Steps_MockGitCheck_ExecutionBehavior()
     {
         var runner = new MockCommandRunner();
@@ -232,5 +361,19 @@ public class ProvisioningTests
 
         Assert.Equal(ProvisioningStatus.Completed, result.Status);
         Assert.Contains("Git is already installed", result.Logs[1]);
+    }
+
+    private static bool IsPrivilegedProvisioningCommand(string command)
+    {
+        return command.Contains("Get-WindowsCapability", StringComparison.OrdinalIgnoreCase)
+            || command.Contains("Add-WindowsCapability", StringComparison.OrdinalIgnoreCase)
+            || command.Contains("Set-Service", StringComparison.OrdinalIgnoreCase)
+            || command.Contains("Start-Service", StringComparison.OrdinalIgnoreCase)
+            || command.Contains("New-NetFirewallRule", StringComparison.OrdinalIgnoreCase)
+            || command.Contains("Get-NetFirewallRule", StringComparison.OrdinalIgnoreCase)
+            || command.Contains("powercfg", StringComparison.OrdinalIgnoreCase)
+            || command.Contains("authorized_keys", StringComparison.OrdinalIgnoreCase)
+            || command.Contains("Set-Acl", StringComparison.OrdinalIgnoreCase)
+            || command.Contains("Add-Content", StringComparison.OrdinalIgnoreCase);
     }
 }

@@ -22,9 +22,17 @@ public class EnsureOpenSshServerInstalled : IProvisioningStep
     {
         var logs = new List<string>();
         
-        if (dryRun && !RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        if (dryRun)
         {
-            logs.Add("[Dry-run] Non-Windows environment detected. Simulating OpenSSH Server capability check.");
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                logs.Add("[Dry-run] Non-Windows environment detected. Simulating OpenSSH Server capability check.");
+            }
+            else
+            {
+                logs.Add("[Dry-run] Simulating OpenSSH Server capability check.");
+            }
+            logs.Add("[Dry-run] Would execute: Get-WindowsCapability -Online -Name OpenSSH.Server*");
             logs.Add("[Dry-run] Would execute: Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0");
             return ProvisioningStepResult.Success(Name, logs);
         }
@@ -51,12 +59,6 @@ public class EnsureOpenSshServerInstalled : IProvisioningStep
         }
 
         logs.Add("OpenSSH Server is not installed.");
-
-        if (dryRun)
-        {
-            logs.Add("[Dry-run] Would execute: Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0");
-            return ProvisioningStepResult.Success(Name, logs);
-        }
 
         logs.Add("Installing OpenSSH Server capability (this may take a few minutes)...");
         var installResult = await context.CommandRunner.RunPowerShellAsync(

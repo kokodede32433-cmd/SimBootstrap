@@ -22,9 +22,18 @@ public class EnsureFirewallRuleForSsh : IProvisioningStep
     {
         var logs = new List<string>();
         
-        if (dryRun && !RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        if (dryRun)
         {
-            logs.Add("[Dry-run] Non-Windows environment detected. Simulating firewall rule check.");
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                logs.Add("[Dry-run] Non-Windows environment detected. Simulating firewall rule check.");
+            }
+            else
+            {
+                logs.Add("[Dry-run] Simulating firewall rule check.");
+            }
+            logs.Add("[Dry-run] Would execute: Get-NetFirewallRule -Name \"SSH\" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name");
+            logs.Add("[Dry-run] Would execute: Get-NetFirewallRule -Name \"OpenSSH-Server-In-TCP\" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Enabled");
             logs.Add("[Dry-run] Would execute: New-NetFirewallRule -Name \"SSH\" -DisplayName \"Allow SSH\" -Profile Any -Direction Inbound -Action Allow -Protocol TCP -LocalPort 22");
             return ProvisioningStepResult.Success(Name, logs);
         }
@@ -55,12 +64,6 @@ public class EnsureFirewallRuleForSsh : IProvisioningStep
         }
 
         logs.Add("Inbound SSH firewall rule is not configured or enabled.");
-
-        if (dryRun)
-        {
-            logs.Add("[Dry-run] Would execute: New-NetFirewallRule -Name \"SSH\" -DisplayName \"Allow SSH\" -Profile Any -Direction Inbound -Action Allow -Protocol TCP -LocalPort 22");
-            return ProvisioningStepResult.Success(Name, logs);
-        }
 
         logs.Add("Creating inbound firewall rule for Port 22...");
         var createResult = await context.CommandRunner.RunPowerShellAsync(

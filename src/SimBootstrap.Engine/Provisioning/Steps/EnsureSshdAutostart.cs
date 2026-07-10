@@ -22,9 +22,17 @@ public class EnsureSshdAutostart : IProvisioningStep
     {
         var logs = new List<string>();
         
-        if (dryRun && !RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        if (dryRun)
         {
-            logs.Add("[Dry-run] Non-Windows environment detected. Simulating sshd autostart check.");
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                logs.Add("[Dry-run] Non-Windows environment detected. Simulating sshd autostart check.");
+            }
+            else
+            {
+                logs.Add("[Dry-run] Simulating sshd autostart check.");
+            }
+            logs.Add("[Dry-run] Would execute: (Get-Service sshd).StartType.ToString()");
             logs.Add("[Dry-run] Would execute: Set-Service sshd -StartupType Automatic");
             return ProvisioningStepResult.Success(Name, logs);
         }
@@ -48,12 +56,6 @@ public class EnsureSshdAutostart : IProvisioningStep
         if (startType.Equals("Automatic", StringComparison.OrdinalIgnoreCase))
         {
             logs.Add("sshd service is already configured for Automatic startup.");
-            return ProvisioningStepResult.Success(Name, logs);
-        }
-
-        if (dryRun)
-        {
-            logs.Add("[Dry-run] Would execute: Set-Service sshd -StartupType Automatic");
             return ProvisioningStepResult.Success(Name, logs);
         }
 

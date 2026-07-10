@@ -23,9 +23,17 @@ public class EnsureAuthorizedKeys : IProvisioningStep
         var logs = new List<string>();
         var targetKey = context.Config.AuthorizedPublicKey.Trim();
         
-        if (dryRun && !RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        if (dryRun)
         {
-            logs.Add("[Dry-run] Non-Windows environment detected. Simulating authorized_keys key injection.");
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                logs.Add("[Dry-run] Non-Windows environment detected. Simulating authorized_keys key injection.");
+            }
+            else
+            {
+                logs.Add("[Dry-run] Simulating authorized_keys key injection.");
+            }
+            logs.Add("[Dry-run] Would check whether the public key is present in authorized_keys.");
             logs.Add($"[Dry-run] Would append public key to authorized_keys and apply security ACLs: {targetKey}");
             return ProvisioningStepResult.Success(Name, logs);
         }
@@ -54,12 +62,6 @@ public class EnsureAuthorizedKeys : IProvisioningStep
         }
 
         logs.Add("Public key is missing from authorized_keys.");
-
-        if (dryRun)
-        {
-            logs.Add($"[Dry-run] Would append public key to authorized_keys and apply security ACLs: {targetKey}");
-            return ProvisioningStepResult.Success(Name, logs);
-        }
 
         logs.Add("Writing public key and securing authorized_keys permissions...");
 

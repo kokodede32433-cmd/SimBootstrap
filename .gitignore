@@ -21,6 +21,7 @@ Thumbs.db
 logs/
 config/*.local.json
 config/packages.json
+.dotnet/
 
 # Artifacts
 artifacts/

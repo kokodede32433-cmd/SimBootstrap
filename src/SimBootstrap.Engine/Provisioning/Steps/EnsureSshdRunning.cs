@@ -22,9 +22,17 @@ public class EnsureSshdRunning : IProvisioningStep
     {
         var logs = new List<string>();
         
-        if (dryRun && !RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        if (dryRun)
         {
-            logs.Add("[Dry-run] Non-Windows environment detected. Simulating sshd status check.");
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                logs.Add("[Dry-run] Non-Windows environment detected. Simulating sshd status check.");
+            }
+            else
+            {
+                logs.Add("[Dry-run] Simulating sshd status check.");
+            }
+            logs.Add("[Dry-run] Would execute: (Get-Service sshd).Status.ToString()");
             logs.Add("[Dry-run] Would execute: Start-Service sshd");
             return ProvisioningStepResult.Success(Name, logs);
         }
@@ -48,12 +56,6 @@ public class EnsureSshdRunning : IProvisioningStep
         if (status.Equals("Running", StringComparison.OrdinalIgnoreCase))
         {
             logs.Add("sshd service is already running.");
-            return ProvisioningStepResult.Success(Name, logs);
-        }
-
-        if (dryRun)
-        {
-            logs.Add("[Dry-run] Would execute: Start-Service sshd");
             return ProvisioningStepResult.Success(Name, logs);
         }
 

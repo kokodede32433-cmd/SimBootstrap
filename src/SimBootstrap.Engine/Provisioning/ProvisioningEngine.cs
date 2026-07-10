@@ -13,11 +13,16 @@ public class ProvisioningEngine
     private readonly ICommandRunner _commandRunner;
     private readonly IWindowsCapabilityChecker _capabilityChecker;
     private readonly List<IProvisioningStep> _steps;
+    private readonly Func<bool> _isWindowsProvider;
 
-    public ProvisioningEngine(ICommandRunner commandRunner, IWindowsCapabilityChecker capabilityChecker)
+    public ProvisioningEngine(
+        ICommandRunner commandRunner,
+        IWindowsCapabilityChecker capabilityChecker,
+        Func<bool>? isWindowsProvider = null)
     {
         _commandRunner = commandRunner;
         _capabilityChecker = capabilityChecker;
+        _isWindowsProvider = isWindowsProvider ?? (() => RuntimeInformation.IsOSPlatform(OSPlatform.Windows));
         _steps = new List<IProvisioningStep>
         {
             new EnsureGitInstalled(),
@@ -32,11 +37,16 @@ public class ProvisioningEngine
     }
 
     // Constructor that accepts custom steps for testing flexibility
-    public ProvisioningEngine(ICommandRunner commandRunner, IWindowsCapabilityChecker capabilityChecker, List<IProvisioningStep> steps)
+    public ProvisioningEngine(
+        ICommandRunner commandRunner,
+        IWindowsCapabilityChecker capabilityChecker,
+        List<IProvisioningStep> steps,
+        Func<bool>? isWindowsProvider = null)
     {
         _commandRunner = commandRunner;
         _capabilityChecker = capabilityChecker;
         _steps = steps;
+        _isWindowsProvider = isWindowsProvider ?? (() => RuntimeInformation.IsOSPlatform(OSPlatform.Windows));
     }
 
     public async Task<ProvisioningResult> RunProvisioningAsync(ProvisioningConfig config, bool dryRun, CancellationToken cancellationToken = default)
@@ -80,7 +90,7 @@ public class ProvisioningEngine
             return result;
         }
 
-        var isWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
+        var isWindows = _isWindowsProvider();
 
         // 3. Enforce OS and Privilege Checks for real execution
         if (!dryRun)
@@ -94,7 +104,7 @@ public class ProvisioningEngine
 
             if (!caps.IsAdmin)
             {
-                LogError("Error: Administrator privileges are required to apply real provisioning changes. Please run as Administrator.");
+                LogError("Administrator privileges are required for --apply.");
                 result.Success = false;
                 return result;
             }
