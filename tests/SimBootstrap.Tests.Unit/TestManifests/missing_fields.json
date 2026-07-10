@@ -1,0 +1,9 @@
+{
+  "name": "Missing ID Package",
+  "version": "1.0.0",
+  "installerType": "msi",
+  "downloadUrl": "https://example.com/missing.msi",
+  "installArguments": "",
+  "verifyRules": [],
+  "dependencies": []
+}

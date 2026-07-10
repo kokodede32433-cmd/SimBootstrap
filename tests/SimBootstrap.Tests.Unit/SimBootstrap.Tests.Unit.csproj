@@ -11,4 +11,9 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\SimBootstrap.SDK\SimBootstrap.SDK.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <None Update="TestManifests\*.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
 </Project>
