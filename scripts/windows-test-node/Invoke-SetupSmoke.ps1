@@ -7,7 +7,7 @@ param(
     [string] $SetupAssetName,
 
     [Parameter(Mandatory = $true)]
-    [ValidateSet("setup-smoke")]
+    [ValidateSet("real-pairing-e2e")]
     [string] $TestMode,
 
     [Parameter(Mandatory = $true)]
@@ -20,18 +20,20 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$serviceName = "SimBootstrapAgent"
+$serviceName = "SimAgentService"
+$legacyServiceName = "SimBootstrapAgent"
 $programFilesRoot = "C:\Program Files\SimBootstrap"
 $programDataRoot = "C:\ProgramData\SimBootstrap"
-$agentExePath = Join-Path $programFilesRoot "Agent\SimBootstrap.Agent.exe"
+$agentExePath = Join-Path $programFilesRoot "Agent\SimAgent.Service.exe"
 $agentSettingsPath = Join-Path $programDataRoot "config\agentsettings.json"
 $installResultPath = Join-Path $programDataRoot "state\installation-result.json"
 $logsPath = Join-Path $programDataRoot "logs"
+$serviceLogsPath = Join-Path $programFilesRoot "Agent\logs"
 $runDirectory = Join-Path (Join-Path $RootDirectory "runs") $RunId
 $downloadDirectory = Join-Path $runDirectory "download"
 $artifactDirectory = Join-Path $runDirectory "artifacts"
 $setupPath = Join-Path $downloadDirectory $SetupAssetName
-$validationReportPath = Join-Path $artifactDirectory "validation-report.json"
+$validationReportPath = Join-Path $artifactDirectory "qa-result.json"
 
 function New-Directory {
     param([string] $Path)
@@ -45,25 +47,66 @@ function Test-IsAdministrator {
 }
 
 function Get-ServiceSnapshot {
-    $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+    param([string] $Name = $serviceName)
+
+    $service = Get-Service -Name $Name -ErrorAction SilentlyContinue
     if ($null -eq $service) {
         return [ordered]@{
             Exists = $false
             Status = "Missing"
-            ServiceName = $serviceName
+            ServiceName = $Name
         }
     }
 
-    $wmiService = Get-CimInstance Win32_Service -Filter "Name='$serviceName'" -ErrorAction SilentlyContinue
+    $wmiService = Get-CimInstance Win32_Service -Filter "Name='$Name'" -ErrorAction SilentlyContinue
     return [ordered]@{
         Exists = $true
         Status = $service.Status.ToString()
-        ServiceName = $serviceName
+        ServiceName = $Name
         ProcessId = if ($wmiService) { $wmiService.ProcessId } else { $null }
         StartMode = if ($wmiService) { $wmiService.StartMode } else { $null }
         State = if ($wmiService) { $wmiService.State } else { $null }
         PathName = if ($wmiService) { $wmiService.PathName } else { $null }
     }
+}
+
+function Assert-RequiredSecret {
+    param(
+        [Parameter(Mandatory = $true)] [string] $Name,
+        [string] $Value
+    )
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        throw "Missing required secret/environment value: $Name"
+    }
+}
+
+function New-StagingPairCode {
+    Assert-RequiredSecret "SIMCRM_STAGING_SUPABASE_URL" $env:SIMCRM_STAGING_SUPABASE_URL
+    Assert-RequiredSecret "SIMCRM_STAGING_PAIR_CODE_TOKEN" $env:SIMCRM_STAGING_PAIR_CODE_TOKEN
+    Assert-RequiredSecret "SIMCRM_STAGING_PAIRING_LOCATION_ID" $env:SIMCRM_STAGING_PAIRING_LOCATION_ID
+
+    $supabaseUrl = $env:SIMCRM_STAGING_SUPABASE_URL.TrimEnd("/")
+    $rpcUrl = "$supabaseUrl/rest/v1/rpc/create_agent_pairing_code_v1"
+    $body = @{ p_location_id = $env:SIMCRM_STAGING_PAIRING_LOCATION_ID } | ConvertTo-Json -Compress
+    $apiKey = if ([string]::IsNullOrWhiteSpace($env:SIMCRM_STAGING_SUPABASE_ANON_KEY)) {
+        $env:SIMCRM_STAGING_PAIR_CODE_TOKEN
+    } else {
+        $env:SIMCRM_STAGING_SUPABASE_ANON_KEY
+    }
+    $headers = @{
+        apikey = $apiKey
+        Authorization = "Bearer $($env:SIMCRM_STAGING_PAIR_CODE_TOKEN)"
+        "Content-Type" = "application/json"
+    }
+
+    $response = Invoke-RestMethod -Method Post -Uri $rpcUrl -Headers $headers -Body $body
+    $pairCode = if ($response.pairingCode) { $response.pairingCode } elseif ($response.pairingcode) { $response.pairingcode } else { $null }
+    if ([string]::IsNullOrWhiteSpace($pairCode)) {
+        throw "Pair Code RPC did not return a usable pairing code."
+    }
+
+    Write-Host "::add-mask::$pairCode"
+    return [string]$pairCode
 }
 
 function Write-JsonFile {
@@ -112,15 +155,17 @@ function Copy-RedactedFile {
 function Remove-QaState {
     Write-Host "Cleaning known SimBootstrap QA service and directories only."
 
-    $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
-    if ($service) {
-        if ($service.Status -ne "Stopped") {
-            Stop-Service -Name $serviceName -Force -ErrorAction SilentlyContinue
-            $service.WaitForStatus("Stopped", [TimeSpan]::FromSeconds(30))
-        }
+    foreach ($name in @($serviceName, $legacyServiceName)) {
+        $service = Get-Service -Name $name -ErrorAction SilentlyContinue
+        if ($service) {
+            if ($service.Status -ne "Stopped") {
+                Stop-Service -Name $name -Force -ErrorAction SilentlyContinue
+                $service.WaitForStatus("Stopped", [TimeSpan]::FromSeconds(30))
+            }
 
-        & sc.exe delete $serviceName | Out-File -FilePath (Join-Path $artifactDirectory "cleanup-service-delete.txt") -Encoding UTF8
-        Start-Sleep -Seconds 2
+            & sc.exe delete $name | Out-File -FilePath (Join-Path $artifactDirectory "cleanup-service-delete-$name.txt") -Encoding UTF8
+            Start-Sleep -Seconds 2
+        }
     }
 
     foreach ($path in @($programFilesRoot, $programDataRoot)) {
@@ -147,7 +192,7 @@ function Wait-ForInstallationResult {
 
 function Get-AgentProcessInfo {
     $serviceInfo = Get-CimInstance Win32_Service -Filter "Name='$serviceName'" -ErrorAction SilentlyContinue
-    $processes = @(Get-Process -Name "SimBootstrap.Agent" -ErrorAction SilentlyContinue | ForEach-Object {
+    $processes = @(Get-Process -Name "SimAgent.Service" -ErrorAction SilentlyContinue | ForEach-Object {
         [ordered]@{
             Id = $_.Id
             ProcessName = $_.ProcessName
@@ -159,6 +204,14 @@ function Get-AgentProcessInfo {
     return [ordered]@{
         ServiceProcessId = if ($serviceInfo) { $serviceInfo.ProcessId } else { $null }
         Processes = $processes
+        LegacyProcesses = @(Get-Process -Name "SimBootstrap.Agent" -ErrorAction SilentlyContinue | ForEach-Object {
+            [ordered]@{
+                Id = $_.Id
+                ProcessName = $_.ProcessName
+                Path = $_.Path
+                StartTime = try { $_.StartTime.ToString("O") } catch { $null }
+            }
+        })
     }
 }
 
@@ -182,6 +235,7 @@ function Add-StepSummary {
 | Installation result | `$($Validation.Installation.Success)` |
 | Service result | `$($Validation.Service.Status)` |
 | Agent result | `$($Validation.Agent.Result)` |
+| Canonical executable | `$($Validation.Service.CanonicalExecutable)` |
 | Artifact | `$ArtifactName` |
 
 "@ | Add-Content -Path $env:GITHUB_STEP_SUMMARY -Encoding UTF8
@@ -193,6 +247,7 @@ New-Directory $artifactDirectory
 $preState = [ordered]@{
     Timestamp = (Get-Date).ToString("O")
     Service = Get-ServiceSnapshot
+    LegacyService = Get-ServiceSnapshot $legacyServiceName
     ProgramFilesExists = Test-Path $programFilesRoot
     ProgramDataExists = Test-Path $programDataRoot
     AgentProcesses = Get-AgentProcessInfo
@@ -218,6 +273,15 @@ $downloadUrl = "https://github.com/$Repository/releases/download/$ReleaseTag/$Se
 Write-Host "Downloading $downloadUrl"
 Invoke-WebRequest -Uri $downloadUrl -OutFile $setupPath -UseBasicParsing
 
+$controlServerUrl = if ([string]::IsNullOrWhiteSpace($env:SIMBOOTSTRAP_STAGING_CONTROL_SERVER_URL)) {
+    "https://api-staging.hi-racing.ru/functions/v1/pair-agent"
+} else {
+    $env:SIMBOOTSTRAP_STAGING_CONTROL_SERVER_URL
+}
+@{
+    controlServerUrl = $controlServerUrl
+} | ConvertTo-Json -Depth 4 | Set-Content -Path (Join-Path $downloadDirectory "setupconfig.json") -Encoding UTF8
+
 $windowsVersion = Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version, BuildNumber, OSArchitecture
 Write-JsonFile $windowsVersion (Join-Path $artifactDirectory "windows-version.json")
 $PSVersionTable | ConvertTo-Json -Depth 4 | Set-Content -Path (Join-Path $artifactDirectory "powershell-version.json") -Encoding UTF8
@@ -225,7 +289,9 @@ $PSVersionTable | ConvertTo-Json -Depth 4 | Set-Content -Path (Join-Path $artifa
 
 $setupStdout = Join-Path $runDirectory "setup-stdout.raw.txt"
 $setupStderr = Join-Path $runDirectory "setup-stderr.raw.txt"
-$process = Start-Process -FilePath $setupPath -ArgumentList @("--pair-code", "LOCAL-PAIR-CODE") -Wait -PassThru -NoNewWindow -RedirectStandardOutput $setupStdout -RedirectStandardError $setupStderr
+$pairCode = New-StagingPairCode
+$process = Start-Process -FilePath $setupPath -ArgumentList @("--pair-code", $pairCode) -Wait -PassThru -NoNewWindow -RedirectStandardOutput $setupStdout -RedirectStandardError $setupStderr
+$pairCode = $null
 
 $resultAppeared = Wait-ForInstallationResult -Timeout ([TimeSpan]::FromSeconds(120))
 if (-not $resultAppeared) {
@@ -234,12 +300,25 @@ if (-not $resultAppeared) {
 
 $installationResult = Get-Content -Raw -Path $installResultPath | ConvertFrom-Json
 $service = Get-ServiceSnapshot
+$legacyService = Get-ServiceSnapshot $legacyServiceName
 $agentProcess = Get-AgentProcessInfo
-$agentLogs = @(Get-ChildItem -Path $logsPath -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
+$agentLogs = @(
+    Get-ChildItem -Path $logsPath -File -ErrorAction SilentlyContinue
+    Get-ChildItem -Path $serviceLogsPath -File -ErrorAction SilentlyContinue
+) | Sort-Object LastWriteTime -Descending
 $recentAgentLogs = @($agentLogs | Where-Object { $_.LastWriteTime -gt (Get-Date).AddMinutes(-15) })
 $fatalLogHits = @()
+$configLoadedHits = @()
 foreach ($log in $recentAgentLogs) {
     $fatalLogHits += @(Select-String -Path $log.FullName -Pattern "Fatal|Unhandled exception|StackTrace|Access denied" -SimpleMatch:$false -ErrorAction SilentlyContinue | Select-Object -First 20)
+    $configLoadedHits += @(Select-String -Path $log.FullName -Pattern "Starting SimAgent Service Host" -SimpleMatch -ErrorAction SilentlyContinue | Select-Object -First 5)
+}
+
+$secretLogHits = @()
+foreach ($candidate in @($setupStdout, $setupStderr, $installResultPath) + @($recentAgentLogs | ForEach-Object { $_.FullName })) {
+    if (Test-Path $candidate) {
+        $secretLogHits += @(Select-String -Path $candidate -Pattern '(?i)machineCredential|Authorization:\s*Bearer|pairCode"\s*:' -ErrorAction SilentlyContinue | Select-Object -First 20)
+    }
 }
 
 $validation = [ordered]@{
@@ -255,30 +334,43 @@ $validation = [ordered]@{
         Message = $installationResult.Message
     }
     Service = $service
+    LegacyService = $legacyService
     Files = [ordered]@{
         AgentExeExists = Test-Path $agentExePath
         AgentSettingsExists = Test-Path $agentSettingsPath
         LogsDirectoryExists = Test-Path $logsPath
+        ServiceLogsDirectoryExists = Test-Path $serviceLogsPath
     }
     Agent = [ordered]@{
         Result = "Unknown"
         Process = $agentProcess
         RecentLogCount = $recentAgentLogs.Count
         FatalStartupHits = @($fatalLogHits | ForEach-Object { ConvertTo-RedactedText "$($_.Path):$($_.LineNumber): $($_.Line)" })
+        ConfigLoaded = $configLoadedHits.Count -gt 0
+        SecretPatternHits = @($secretLogHits | ForEach-Object { ConvertTo-RedactedText "$($_.Path):$($_.LineNumber): $($_.Line)" })
     }
+}
+$validation.Service.CanonicalExecutable = $false
+if ($validation.Service.PathName) {
+    $validation.Service.CanonicalExecutable = ($validation.Service.PathName -like "*SimAgent.Service.exe*" -and $validation.Service.PathName -like "*--SimAgent:AgentSettingsPath*")
 }
 
 $failures = New-Object System.Collections.Generic.List[string]
 if ($process.ExitCode -ne 0) { $failures.Add("Setup exited with code $($process.ExitCode).") }
 if (-not $validation.Installation.Success) { $failures.Add("installation-result.json Success was not true.") }
-if (-not $validation.Service.Exists) { $failures.Add("SimBootstrapAgent service does not exist.") }
-if ($validation.Service.Status -ne "Running") { $failures.Add("SimBootstrapAgent service status is $($validation.Service.Status), expected Running.") }
+if (-not $validation.Service.Exists) { $failures.Add("SimAgentService service does not exist.") }
+if ($validation.Service.Status -ne "Running") { $failures.Add("SimAgentService service status is $($validation.Service.Status), expected Running.") }
+if (-not $validation.Service.CanonicalExecutable) { $failures.Add("SimAgentService is not targeting SimAgent.Service.exe with the canonical config path argument.") }
+if ($validation.LegacyService.Exists) { $failures.Add("Legacy SimBootstrapAgent service exists; it must not run as a production Agent.") }
 if (-not $validation.Files.AgentExeExists) { $failures.Add("$agentExePath is missing.") }
 if (-not $validation.Files.AgentSettingsExists) { $failures.Add("$agentSettingsPath is missing.") }
 if (-not $validation.Files.LogsDirectoryExists) { $failures.Add("$logsPath is missing.") }
 if (($null -eq $agentProcess.ServiceProcessId) -or ($agentProcess.ServiceProcessId -le 0)) { $failures.Add("Service PID could not be resolved.") }
 if ($recentAgentLogs.Count -eq 0) { $failures.Add("No recent Agent logs found.") }
+if (-not $validation.Agent.ConfigLoaded) { $failures.Add("Recent logs do not confirm SimAgent.Service startup after real config load.") }
+if ($agentProcess.LegacyProcesses.Count -gt 0) { $failures.Add("Legacy SimBootstrap.Agent process is running.") }
 if ($fatalLogHits.Count -gt 0) { $failures.Add("Recent Agent logs contain fatal startup errors.") }
+if ($secretLogHits.Count -gt 0) { $failures.Add("Logs or artifacts contain secret-shaped fields.") }
 
 if ($failures.Count -eq 0) {
     $validation.Agent.Result = "Passed"
@@ -289,6 +381,7 @@ if ($failures.Count -eq 0) {
 }
 
 Write-JsonFile $validation $validationReportPath
+Write-JsonFile $validation (Join-Path $artifactDirectory "validation-report.json")
 
 Copy-RedactedFile $installResultPath (Join-Path $artifactDirectory "installation-result.redacted.json")
 Copy-RedactedFile $setupStdout (Join-Path $artifactDirectory "setup-stdout.redacted.txt")
@@ -301,10 +394,15 @@ foreach ($log in $agentLogs | Select-Object -First 10) {
 }
 
 (& sc.exe queryex $serviceName 2>&1) | Set-Content -Path (Join-Path $artifactDirectory "service-queryex.txt") -Encoding UTF8
-Get-Process -Name "SimBootstrap.Agent" -ErrorAction SilentlyContinue |
+(& sc.exe queryex $legacyServiceName 2>&1) | Set-Content -Path (Join-Path $artifactDirectory "legacy-service-queryex.txt") -Encoding UTF8
+Get-Process -Name "SimAgent.Service" -ErrorAction SilentlyContinue |
     Select-Object Id, ProcessName, Path, StartTime |
     ConvertTo-Json -Depth 4 |
     Set-Content -Path (Join-Path $artifactDirectory "agent-processes.json") -Encoding UTF8
+Get-Process -Name "SimBootstrap.Agent" -ErrorAction SilentlyContinue |
+    Select-Object Id, ProcessName, Path, StartTime |
+    ConvertTo-Json -Depth 4 |
+    Set-Content -Path (Join-Path $artifactDirectory "legacy-agent-processes.json") -Encoding UTF8
 
 Add-StepSummary $validation "windows-test-node-setup-smoke-$RunId"
 

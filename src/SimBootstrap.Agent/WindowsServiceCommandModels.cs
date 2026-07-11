@@ -23,35 +23,47 @@ public sealed class WindowsServiceInstallPlan
 {
     public string ServiceName { get; init; } = AgentPaths.ServiceName;
     public string DisplayName { get; init; } = AgentPaths.DisplayName;
+    public string Description { get; init; } = "Runs the local SimBootstrap Agent.";
     public string ExecutablePath { get; init; } = string.Empty;
     public string ConfigPath { get; init; } = string.Empty;
+    public string BinPath { get; init; } = string.Empty;
     public List<string> Commands { get; } = new();
 }
 
 public static class WindowsServiceCommandBuilder
 {
-    public static WindowsServiceInstallPlan BuildInstallPlan(string executablePath, string configPath)
+    public static WindowsServiceInstallPlan BuildInstallPlan(
+        string executablePath,
+        string configPath,
+        string serviceName = AgentPaths.ServiceName,
+        string displayName = AgentPaths.DisplayName,
+        string description = "Runs the local SimBootstrap Agent.",
+        string? binPath = null)
     {
-        var binPath = $"\"{executablePath}\" service --config \"{configPath}\"";
+        var resolvedBinPath = binPath ?? $"\"{executablePath}\" service --config \"{configPath}\"";
         var plan = new WindowsServiceInstallPlan
         {
+            ServiceName = serviceName,
+            DisplayName = displayName,
+            Description = description,
             ExecutablePath = executablePath,
-            ConfigPath = configPath
+            ConfigPath = configPath,
+            BinPath = resolvedBinPath
         };
 
-        plan.Commands.Add($"sc.exe query {AgentPaths.ServiceName}");
-        plan.Commands.Add($"sc.exe create {AgentPaths.ServiceName} binPath= {Quote(binPath)} DisplayName= {Quote(AgentPaths.DisplayName)} start= delayed-auto");
-        plan.Commands.Add($"sc.exe description {AgentPaths.ServiceName} {Quote("Runs the local SimBootstrap Agent.")}");
-        plan.Commands.Add($"sc.exe failure {AgentPaths.ServiceName} reset= 86400 actions= restart/60000/restart/60000/restart/60000");
-        plan.Commands.Add($"sc.exe failureflag {AgentPaths.ServiceName} 1");
+        plan.Commands.Add($"sc.exe query {serviceName}");
+        plan.Commands.Add($"sc.exe create {serviceName} binPath= {Quote(resolvedBinPath)} DisplayName= {Quote(displayName)} start= delayed-auto");
+        plan.Commands.Add($"sc.exe description {serviceName} {Quote(description)}");
+        plan.Commands.Add($"sc.exe failure {serviceName} reset= 86400 actions= restart/60000/restart/60000/restart/60000");
+        plan.Commands.Add($"sc.exe failureflag {serviceName} 1");
         return plan;
     }
 
-    public static string BuildUninstallQueryCommand() => $"sc.exe query {AgentPaths.ServiceName}";
-    public static string BuildUninstallDeleteCommand() => $"sc.exe delete {AgentPaths.ServiceName}";
-    public static string BuildStartCommand() => $"sc.exe start {AgentPaths.ServiceName}";
-    public static string BuildStopCommand() => $"sc.exe stop {AgentPaths.ServiceName}";
-    public static string BuildStatusCommand() => $"sc.exe query {AgentPaths.ServiceName}";
+    public static string BuildUninstallQueryCommand(string serviceName = AgentPaths.ServiceName) => $"sc.exe query {serviceName}";
+    public static string BuildUninstallDeleteCommand(string serviceName = AgentPaths.ServiceName) => $"sc.exe delete {serviceName}";
+    public static string BuildStartCommand(string serviceName = AgentPaths.ServiceName) => $"sc.exe start {serviceName}";
+    public static string BuildStopCommand(string serviceName = AgentPaths.ServiceName) => $"sc.exe stop {serviceName}";
+    public static string BuildStatusCommand(string serviceName = AgentPaths.ServiceName) => $"sc.exe query {serviceName}";
 
     private static string Quote(string value) => $"\"{value}\"";
 }
@@ -90,11 +102,25 @@ public sealed class WindowsServiceManager
 {
     private readonly IProcessRunner _processRunner;
     private readonly Func<bool> _isWindows;
+    private readonly string _serviceName;
+    private readonly string _displayName;
+    private readonly string _description;
+    private readonly Func<string, string, string> _binPathFactory;
 
-    public WindowsServiceManager(IProcessRunner processRunner, Func<bool>? isWindows = null)
+    public WindowsServiceManager(
+        IProcessRunner processRunner,
+        Func<bool>? isWindows = null,
+        string serviceName = AgentPaths.ServiceName,
+        string displayName = AgentPaths.DisplayName,
+        string description = "Runs the local SimBootstrap Agent.",
+        Func<string, string, string>? binPathFactory = null)
     {
         _processRunner = processRunner;
         _isWindows = isWindows ?? (() => RuntimeInformation.IsOSPlatform(OSPlatform.Windows));
+        _serviceName = serviceName;
+        _displayName = displayName;
+        _description = description;
+        _binPathFactory = binPathFactory ?? ((executablePath, configPath) => $"\"{executablePath}\" service --config \"{configPath}\"");
     }
 
     public async Task<ServiceCommandResult> ExecuteAsync(
@@ -112,9 +138,9 @@ public sealed class WindowsServiceManager
         {
             AgentServiceCommandKind.Install => await InstallAsync(executablePath, configPath, cancellationToken),
             AgentServiceCommandKind.Uninstall => await UninstallAsync(cancellationToken),
-            AgentServiceCommandKind.Start => await RunServiceCommandAsync(WindowsServiceCommandBuilder.BuildStartCommand(), "Service start requested.", cancellationToken),
-            AgentServiceCommandKind.Stop => await RunServiceCommandAsync(WindowsServiceCommandBuilder.BuildStopCommand(), "Service stop requested.", cancellationToken),
-            AgentServiceCommandKind.Status => await RunServiceCommandAsync(WindowsServiceCommandBuilder.BuildStatusCommand(), "Service status queried.", cancellationToken),
+            AgentServiceCommandKind.Start => await RunServiceCommandAsync(WindowsServiceCommandBuilder.BuildStartCommand(_serviceName), "Service start requested.", cancellationToken),
+            AgentServiceCommandKind.Stop => await RunServiceCommandAsync(WindowsServiceCommandBuilder.BuildStopCommand(_serviceName), "Service stop requested.", cancellationToken),
+            AgentServiceCommandKind.Status => await RunServiceCommandAsync(WindowsServiceCommandBuilder.BuildStatusCommand(_serviceName), "Service status queried.", cancellationToken),
             _ => new ServiceCommandResult(false, $"Unsupported service command: {command}", Array.Empty<string>())
         };
     }
@@ -125,15 +151,16 @@ public sealed class WindowsServiceManager
         Directory.CreateDirectory(AgentPaths.GetLogRoot());
         CopyDefaultConfigIfMissing(configPath);
 
-        var plan = WindowsServiceCommandBuilder.BuildInstallPlan(executablePath, configPath);
+        var binPath = _binPathFactory(executablePath, configPath);
+        var plan = WindowsServiceCommandBuilder.BuildInstallPlan(executablePath, configPath, _serviceName, _displayName, _description, binPath);
         var commands = new List<string> { plan.Commands[0] };
-        var query = await RunScAsync("query", AgentPaths.ServiceName, cancellationToken);
+        var query = await RunScAsync("query", _serviceName, cancellationToken);
         if (query.ExitCode == 0)
         {
             return new ServiceCommandResult(true, "Service already installed.", commands);
         }
 
-        var createArgs = $"create {AgentPaths.ServiceName} binPath= \"\\\"{executablePath}\\\" service --config \\\"{configPath}\\\"\" DisplayName= \"{AgentPaths.DisplayName}\" start= delayed-auto";
+        var createArgs = $"create {_serviceName} binPath= \"{binPath.Replace("\"", "\\\"", StringComparison.Ordinal)}\" DisplayName= \"{_displayName}\" start= delayed-auto";
         commands.Add($"sc.exe {createArgs}");
         var create = await RunScAsync(createArgs, cancellationToken);
         if (!create.Succeeded)
@@ -143,9 +170,9 @@ public sealed class WindowsServiceManager
 
         foreach (var args in new[]
         {
-            $"description {AgentPaths.ServiceName} \"Runs the local SimBootstrap Agent.\"",
-            $"failure {AgentPaths.ServiceName} reset= 86400 actions= restart/60000/restart/60000/restart/60000",
-            $"failureflag {AgentPaths.ServiceName} 1"
+            $"description {_serviceName} \"{_description}\"",
+            $"failure {_serviceName} reset= 86400 actions= restart/60000/restart/60000/restart/60000",
+            $"failureflag {_serviceName} 1"
         })
         {
             commands.Add($"sc.exe {args}");
@@ -161,14 +188,14 @@ public sealed class WindowsServiceManager
 
     private async Task<ServiceCommandResult> UninstallAsync(CancellationToken cancellationToken)
     {
-        var commands = new List<string> { WindowsServiceCommandBuilder.BuildUninstallQueryCommand() };
-        var query = await RunScAsync("query", AgentPaths.ServiceName, cancellationToken);
+        var commands = new List<string> { WindowsServiceCommandBuilder.BuildUninstallQueryCommand(_serviceName) };
+        var query = await RunScAsync("query", _serviceName, cancellationToken);
         if (query.ExitCode != 0)
         {
             return new ServiceCommandResult(true, "Service is not installed.", commands);
         }
 
-        var deleteArgs = $"delete {AgentPaths.ServiceName}";
+        var deleteArgs = $"delete {_serviceName}";
         commands.Add($"sc.exe {deleteArgs}");
         var delete = await RunScAsync(deleteArgs, cancellationToken);
         return delete.Succeeded

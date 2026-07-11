@@ -115,7 +115,7 @@ public class SetupTests
             fileSystem.CreateDirectory(destinationDirectory);
             if (WriteExecutable)
             {
-                fileSystem.WriteAllText(System.IO.Path.Combine(destinationDirectory, "SimBootstrap.Agent.exe"), "agent");
+                fileSystem.WriteAllText(System.IO.Path.Combine(destinationDirectory, ProductionAgentService.ExecutableName), "agent");
             }
 
             return Task.CompletedTask;
@@ -278,6 +278,7 @@ public class SetupTests
         Assert.True(payload.Extracted);
         Assert.True(service.Installed);
         Assert.True(service.Started);
+        Assert.EndsWith(ProductionAgentService.ExecutableName, paths.AgentExePath, StringComparison.OrdinalIgnoreCase);
         Assert.True(fileSystem.FileExists(paths.InstallationResultPath));
         Assert.Equal("Installation completed successfully.", result.Message);
         Assert.Contains("\"Success\": true", fileSystem.ReadAllText(paths.InstallationResultPath));

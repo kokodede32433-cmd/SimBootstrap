@@ -37,7 +37,7 @@ public sealed class SetupPaths
     public string AgentSettingsPath => Path.Combine(ProgramDataConfigDirectory, "agentsettings.json");
     public string InstallationResultPath => Path.Combine(ProgramDataStateDirectory, "installation-result.json");
     public string SetupLogPath => Path.Combine(ProgramDataLogsDirectory, "simbootstrap-setup.log");
-    public string AgentExePath => Path.Combine(ProgramFilesAgentDirectory, "SimBootstrap.Agent.exe");
+    public string AgentExePath => Path.Combine(ProgramFilesAgentDirectory, ProductionAgentService.ExecutableName);
     public string SetupConfigPath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "setupconfig.json");
 }
 

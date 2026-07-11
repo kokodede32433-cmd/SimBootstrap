@@ -212,6 +212,23 @@ public class AgentTests
     }
 
     [Fact]
+    public void WindowsServiceCommandBuilder_InstallPlan_CanTargetSimAgentService()
+    {
+        var plan = WindowsServiceCommandBuilder.BuildInstallPlan(
+            @"C:\Program Files\SimBootstrap\Agent\SimAgent.Service.exe",
+            @"C:\ProgramData\SimBootstrap\config\agentsettings.json",
+            "SimAgentService",
+            "SimAgent Service",
+            "Runs the canonical SimAgent control service.",
+            @"""C:\Program Files\SimBootstrap\Agent\SimAgent.Service.exe"" --SimAgent:AgentSettingsPath ""C:\ProgramData\SimBootstrap\config\agentsettings.json""");
+
+        Assert.Contains(plan.Commands, command => command.Contains("sc.exe create SimAgentService", StringComparison.Ordinal));
+        Assert.Contains(plan.Commands, command => command.Contains("DisplayName= \"SimAgent Service\"", StringComparison.Ordinal));
+        Assert.Contains(plan.Commands, command => command.Contains("--SimAgent:AgentSettingsPath", StringComparison.Ordinal));
+        Assert.Contains(plan.Commands, command => command.Contains("failure SimAgentService reset= 86400 actions= restart/60000/restart/60000/restart/60000", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task WindowsServiceManager_UninstallMissingService_IsIdempotent()
     {
         var processRunner = new RecordingProcessRunner(new CommandExecutionResult(1060, string.Empty, "missing service"));

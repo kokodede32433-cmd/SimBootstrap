@@ -15,10 +15,10 @@ on:
       test_mode:
         description: "Real-machine smoke test mode"
         required: true
-        default: "setup-smoke"
+        default: "real-pairing-e2e"
         type: choice
         options:
-          - setup-smoke
+          - real-pairing-e2e
 
 permissions:
   contents: read
@@ -39,6 +39,12 @@ jobs:
 
       - name: Run Setup smoke validation
         shell: pwsh
+        env:
+          SIMCRM_STAGING_SUPABASE_URL: ${{ secrets.SIMCRM_STAGING_SUPABASE_URL }}
+          SIMCRM_STAGING_SUPABASE_ANON_KEY: ${{ secrets.SIMCRM_STAGING_SUPABASE_ANON_KEY }}
+          SIMCRM_STAGING_PAIR_CODE_TOKEN: ${{ secrets.SIMCRM_STAGING_PAIR_CODE_TOKEN }}
+          SIMCRM_STAGING_PAIRING_LOCATION_ID: ${{ secrets.SIMCRM_STAGING_PAIRING_LOCATION_ID }}
+          SIMBOOTSTRAP_STAGING_CONTROL_SERVER_URL: ${{ secrets.SIMBOOTSTRAP_STAGING_CONTROL_SERVER_URL }}
         run: >
           ./scripts/windows-test-node/Invoke-SetupSmoke.ps1
           -ReleaseTag '${{ inputs.release_tag }}'

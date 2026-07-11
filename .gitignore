@@ -25,3 +25,4 @@ config/packages.json
 
 # Artifacts
 artifacts/
+src/SimBootstrap.Setup/Payload/*.zip

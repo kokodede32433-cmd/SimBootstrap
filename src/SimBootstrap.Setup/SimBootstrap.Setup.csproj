@@ -11,8 +11,8 @@
     <ProjectReference Include="..\SimBootstrap.Engine\SimBootstrap.Engine.csproj" />
   </ItemGroup>
 
-  <ItemGroup Condition="Exists('Payload\SimBootstrap.Agent-win-x64.zip')">
-    <EmbeddedResource Include="Payload\SimBootstrap.Agent-win-x64.zip" LogicalName="SimBootstrap.Agent.Payload.zip" />
+  <ItemGroup Condition="Exists('Payload\SimAgent.Service-win-x64.zip')">
+    <EmbeddedResource Include="Payload\SimAgent.Service-win-x64.zip" LogicalName="SimAgent.Service.Payload.zip" />
   </ItemGroup>
 
 </Project>

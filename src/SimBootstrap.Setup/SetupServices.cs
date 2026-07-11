@@ -245,7 +245,7 @@ public sealed class WindowsAgentConfigAcl : IAgentConfigAcl
 
 public sealed class EmbeddedAgentPayloadExtractor : IAgentPayloadExtractor
 {
-    private const string ResourceName = "SimBootstrap.Agent.Payload.zip";
+    private const string ResourceName = ProductionAgentService.PayloadResourceName;
 
     public async Task ExtractAsync(string destinationDirectory, ISetupFileSystem fileSystem, CancellationToken cancellationToken)
     {
@@ -280,7 +280,7 @@ public sealed class EmbeddedAgentPayloadExtractor : IAgentPayloadExtractor
         }
 
         var payloadDir = Path.Combine(AppContext.BaseDirectory, "AgentPayload");
-        var sourceExe = Path.Combine(payloadDir, "SimBootstrap.Agent.exe");
+        var sourceExe = Path.Combine(payloadDir, ProductionAgentService.ExecutableName);
         if (!fileSystem.FileExists(sourceExe))
         {
             throw new FileNotFoundException("Agent payload was not embedded and AgentPayload fallback is missing.", sourceExe);
@@ -365,11 +365,18 @@ public sealed class AgentServiceSetupManager : ISetupServiceManager
 {
     private readonly WindowsServiceManager _serviceManager;
     private readonly IWindowsServiceStatusReader _statusReader;
+    private readonly string _serviceName;
 
     public AgentServiceSetupManager(IProcessRunner processRunner, IWindowsServiceStatusReader? statusReader = null)
     {
+        _serviceName = ProductionAgentService.ServiceName;
         _statusReader = statusReader ?? new WindowsServiceStatusReader();
-        _serviceManager = new WindowsServiceManager(processRunner);
+        _serviceManager = new WindowsServiceManager(
+            processRunner,
+            serviceName: ProductionAgentService.ServiceName,
+            displayName: ProductionAgentService.DisplayName,
+            description: ProductionAgentService.Description,
+            binPathFactory: static (executablePath, configPath) => $"\"{executablePath}\" --SimAgent:AgentSettingsPath \"{configPath}\"");
     }
 
     public async Task InstallOrUpdateAsync(string agentExePath, string configPath, CancellationToken cancellationToken)
@@ -398,7 +405,7 @@ public sealed class AgentServiceSetupManager : ISetupServiceManager
         while (stopwatch.Elapsed <= timeout)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            lastStatus = await _statusReader.GetStatusAsync(AgentPaths.ServiceName, cancellationToken);
+            lastStatus = await _statusReader.GetStatusAsync(_serviceName, cancellationToken);
             if (lastStatus == SetupServiceStatus.Running)
             {
                 return new ServiceWaitResult(true, lastStatus, stopwatch.Elapsed);
