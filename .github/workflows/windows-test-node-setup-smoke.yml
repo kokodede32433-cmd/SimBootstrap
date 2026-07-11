@@ -47,10 +47,10 @@ jobs:
           SIMBOOTSTRAP_STAGING_CONTROL_SERVER_URL: ${{ secrets.SIMBOOTSTRAP_STAGING_CONTROL_SERVER_URL }}
         run: >
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\windows-test-node\Invoke-SetupSmoke.ps1
-          -ReleaseTag '${{ inputs.release_tag }}'
-          -SetupAssetName '${{ inputs.setup_asset_name }}'
-          -TestMode '${{ inputs.test_mode }}'
-          -RunId '${{ github.run_id }}-${{ github.run_attempt }}'
+          -ReleaseTag "${{ inputs.release_tag }}"
+          -SetupAssetName "${{ inputs.setup_asset_name }}"
+          -TestMode "${{ inputs.test_mode }}"
+          -RunId "${{ github.run_id }}-${{ github.run_attempt }}"
 
       - name: Upload diagnostics
         if: always()
