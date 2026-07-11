@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SimBootstrap.Agent\SimBootstrap.Agent.csproj" />
+    <ProjectReference Include="..\SimBootstrap.SDK\SimBootstrap.SDK.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\config\agentsettings.json" Link="config\agentsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,10 @@
+{
+  "id": "valid-pkg",
+  "name": "Valid Test Package",
+  "version": "1.2.3",
+  "installerType": "msi",
+  "downloadUrl": "https://example.com/valid.msi",
+  "installArguments": "/q",
+  "verifyRules": [],
+  "dependencies": []
+}
