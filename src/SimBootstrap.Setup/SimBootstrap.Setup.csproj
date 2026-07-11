@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.ServiceProcess.ServiceController" />
+    <ProjectReference Include="..\SimBootstrap.Agent\SimBootstrap.Agent.csproj" />
+    <ProjectReference Include="..\SimBootstrap.Engine\SimBootstrap.Engine.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="Exists('Payload\SimAgent.Service-win-x64.zip')">
+    <EmbeddedResource Include="Payload\SimAgent.Service-win-x64.zip" LogicalName="SimAgent.Service.Payload.zip" />
+  </ItemGroup>
+
+</Project>

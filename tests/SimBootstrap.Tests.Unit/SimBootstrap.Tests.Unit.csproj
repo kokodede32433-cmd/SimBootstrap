@@ -9,6 +9,8 @@
     <PackageReference Include="xunit.runner.visualstudio" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\src\SimBootstrap.Agent\SimBootstrap.Agent.csproj" />
+    <ProjectReference Include="..\..\src\SimBootstrap.Setup\SimBootstrap.Setup.csproj" />
     <ProjectReference Include="..\..\src\SimBootstrap.SDK\SimBootstrap.SDK.csproj" />
   </ItemGroup>
   <ItemGroup>

@@ -5,8 +5,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\SimBootstrap.Agent\SimBootstrap.Agent.csproj" />
-    <ProjectReference Include="..\SimBootstrap.SDK\SimBootstrap.SDK.csproj" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" />
   </ItemGroup>
 
   <ItemGroup>

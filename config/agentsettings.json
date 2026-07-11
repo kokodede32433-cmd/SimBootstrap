@@ -1,0 +1,8 @@
+{
+  "agentId": "local-dev-agent",
+  "locationId": "local-dev-location",
+  "clubId": "local-dev-club",
+  "machineCredential": "local-dev-placeholder",
+  "controlServerUrl": "http://localhost:54321/functions/v1/pair-agent",
+  "heartbeatIntervalSeconds": 60
+}

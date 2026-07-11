@@ -1,0 +1,98 @@
+name: Windows Test Node Setup Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "SimBootstrap release tag to test (optional if building from source)"
+        required: false
+        type: string
+      build_from_source:
+        description: "Build Setup.exe from source instead of downloading"
+        required: true
+        default: true
+        type: boolean
+      setup_asset_name:
+        description: "Setup executable asset name"
+        required: true
+        default: "SimBootstrap.Setup.exe"
+        type: string
+      test_mode:
+        description: "Real-machine smoke test mode"
+        required: true
+        default: "real-pairing-e2e"
+        type: choice
+        options:
+          - real-pairing-e2e
+
+permissions:
+  contents: write
+
+jobs:
+  setup-smoke:
+    name: Setup smoke on Windows Test Node
+    runs-on:
+      - self-hosted
+      - Windows
+      - X64
+      - simplatform-windows-test
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout SimBootstrap
+        uses: actions/checkout@v4
+
+      - name: Checkout SimAgent
+        if: ${{ inputs.build_from_source || inputs.release_tag == '' }}
+        uses: actions/checkout@v4
+        with:
+          repository: kokodede32433-cmd/SimAgent
+          ref: develop
+          path: SimAgent
+
+      - name: Build Setup Release
+        if: ${{ inputs.build_from_source || inputs.release_tag == '' }}
+        shell: cmd
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/package/Build-SetupRelease.ps1 -SimAgentServiceProject ../SimAgent/src/SimAgent.Service/SimAgent.Service.csproj -OutputDirectory artifacts/setup-release
+
+      - name: Publish Release Candidate
+        if: ${{ inputs.build_from_source || inputs.release_tag == '' }}
+        shell: cmd
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$tag = 'setup-simagent-e2e-' + (Get-Date -Format 'yyyyMMddHHmmss'); Write-Host ('Creating release: ' + $tag); gh release create $tag artifacts/setup-release/SimBootstrap.Setup.exe --prerelease --title ('Setup SimAgent E2E Candidate ' + $tag); Add-Content -Path $env:GITHUB_ENV -Value ('TEST_RELEASE_TAG=' + $tag)"
+
+      - name: Set Release Tag
+        shell: cmd
+        run: |
+          if not defined TEST_RELEASE_TAG (
+              echo FINAL_RELEASE_TAG=${{ inputs.release_tag }}>> %GITHUB_ENV%
+          ) else (
+              echo FINAL_RELEASE_TAG=%TEST_RELEASE_TAG%>> %GITHUB_ENV%
+          )
+
+      - name: Run Setup smoke validation
+        shell: cmd
+        env:
+          SIMCRM_STAGING_SUPABASE_URL: ${{ secrets.SIMCRM_STAGING_SUPABASE_URL }}
+          SIMCRM_STAGING_SUPABASE_ANON_KEY: ${{ secrets.SIMCRM_STAGING_SUPABASE_ANON_KEY }}
+          SIMCRM_STAGING_PAIR_CODE_TOKEN: ${{ secrets.SIMCRM_STAGING_PAIR_CODE_TOKEN }}
+          SIMBOOTSTRAP_STAGING_CONTROL_SERVER_URL: ${{ secrets.SIMBOOTSTRAP_STAGING_CONTROL_SERVER_URL }}
+        run: >
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\windows-test-node\Invoke-SetupSmoke.ps1
+          -ReleaseTag "%FINAL_RELEASE_TAG%"
+          -SetupAssetName "${{ inputs.setup_asset_name }}"
+          -TestMode "${{ inputs.test_mode }}"
+          -RunId "${{ github.run_id }}-${{ github.run_attempt }}"
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-test-node-setup-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          path: C:\SimPlatformTestNode\runs\${{ github.run_id }}-${{ github.run_attempt }}\artifacts
+          if-no-files-found: warn
+          retention-days: 14
+
