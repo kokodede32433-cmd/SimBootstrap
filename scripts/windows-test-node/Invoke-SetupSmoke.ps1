@@ -394,6 +394,17 @@ Write-JsonFile $validation (Join-Path $artifactDirectory "validation-report.json
 Copy-RedactedFile $installResultPath (Join-Path $artifactDirectory "installation-result.redacted.json")
 Copy-RedactedFile $setupStdout (Join-Path $artifactDirectory "setup-stdout.redacted.txt")
 Copy-RedactedFile $setupStderr (Join-Path $artifactDirectory "setup-stderr.redacted.txt")
+
+# Query Windows Event Log for recent Application errors/warnings
+try {
+    Get-WinEvent -FilterHashtable @{LogName='Application'; Level=1,2,3; StartTime=(Get-Date).AddMinutes(-10)} -ErrorAction SilentlyContinue | 
+        ForEach-Object { "[{0}] [{1}] {2}" -f $_.TimeCreated.ToString("o"), $_.ProviderName, $_.Message } |
+        Set-Content -Path (Join-Path $artifactDirectory "windows-event-logs.txt") -Encoding UTF8
+} catch {
+    Get-EventLog -LogName Application -EntryType Error,Warning -After (Get-Date).AddMinutes(-10) -ErrorAction SilentlyContinue |
+        ForEach-Object { "[{0}] [{1}] {2}" -f $_.TimeGenerated.ToString("o"), $_.Source, $_.Message } |
+        Set-Content -Path (Join-Path $artifactDirectory "windows-event-logs.txt") -Encoding UTF8
+}
 if (Test-Path (Join-Path $logsPath "simbootstrap-setup.log")) {
     Copy-RedactedFile (Join-Path $logsPath "simbootstrap-setup.log") (Join-Path $artifactDirectory "logs\simbootstrap-setup.redacted.log")
 }
