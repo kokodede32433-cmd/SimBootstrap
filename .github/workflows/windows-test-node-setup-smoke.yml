@@ -38,7 +38,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run Setup smoke validation
-        shell: pwsh
+        shell: powershell
         run: >
           ./scripts/windows-test-node/Invoke-SetupSmoke.ps1
           -ReleaseTag '${{ inputs.release_tag }}'
