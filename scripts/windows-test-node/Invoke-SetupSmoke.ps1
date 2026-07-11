@@ -95,27 +95,22 @@ function Assert-RequiredSecret {
 
 function New-StagingPairCode {
     Assert-RequiredSecret "SIMCRM_STAGING_SUPABASE_URL" $env:SIMCRM_STAGING_SUPABASE_URL
+    Assert-RequiredSecret "SIMCRM_STAGING_SUPABASE_ANON_KEY" $env:SIMCRM_STAGING_SUPABASE_ANON_KEY
     Assert-RequiredSecret "SIMCRM_STAGING_PAIR_CODE_TOKEN" $env:SIMCRM_STAGING_PAIR_CODE_TOKEN
-    Assert-RequiredSecret "SIMCRM_STAGING_PAIRING_LOCATION_ID" $env:SIMCRM_STAGING_PAIRING_LOCATION_ID
 
     $supabaseUrl = $env:SIMCRM_STAGING_SUPABASE_URL.TrimEnd("/")
-    $rpcUrl = "$supabaseUrl/rest/v1/rpc/create_agent_pairing_code_v1"
-    $body = @{ p_location_id = $env:SIMCRM_STAGING_PAIRING_LOCATION_ID } | ConvertTo-Json -Compress
-    $apiKey = if ([string]::IsNullOrWhiteSpace($env:SIMCRM_STAGING_SUPABASE_ANON_KEY)) {
-        $env:SIMCRM_STAGING_PAIR_CODE_TOKEN
-    } else {
-        $env:SIMCRM_STAGING_SUPABASE_ANON_KEY
-    }
+    $issuerUrl = "$supabaseUrl/functions/v1/create-e2e-pair-code"
+    $body = @{} | ConvertTo-Json -Compress
     $headers = @{
-        apikey = $apiKey
+        apikey = $env:SIMCRM_STAGING_SUPABASE_ANON_KEY
         Authorization = "Bearer $($env:SIMCRM_STAGING_PAIR_CODE_TOKEN)"
         "Content-Type" = "application/json"
     }
 
-    $response = Invoke-RestMethod -Method Post -Uri $rpcUrl -Headers $headers -Body $body
-    $pairCode = if ($response.pairingCode) { $response.pairingCode } elseif ($response.pairingcode) { $response.pairingcode } else { $null }
+    $response = Invoke-RestMethod -Method Post -Uri $issuerUrl -Headers $headers -Body $body
+    $pairCode = if ($response.pairCode) { $response.pairCode } elseif ($response.paircode) { $response.paircode } else { $null }
     if ([string]::IsNullOrWhiteSpace($pairCode)) {
-        throw "Pair Code RPC did not return a usable pairing code."
+        throw "E2E Pair Code issuer did not return a usable Pair Code."
     }
 
     Write-Host "::add-mask::$pairCode"

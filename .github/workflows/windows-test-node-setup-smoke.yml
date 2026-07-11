@@ -43,7 +43,6 @@ jobs:
           SIMCRM_STAGING_SUPABASE_URL: ${{ secrets.SIMCRM_STAGING_SUPABASE_URL }}
           SIMCRM_STAGING_SUPABASE_ANON_KEY: ${{ secrets.SIMCRM_STAGING_SUPABASE_ANON_KEY }}
           SIMCRM_STAGING_PAIR_CODE_TOKEN: ${{ secrets.SIMCRM_STAGING_PAIR_CODE_TOKEN }}
-          SIMCRM_STAGING_PAIRING_LOCATION_ID: ${{ secrets.SIMCRM_STAGING_PAIRING_LOCATION_ID }}
           SIMBOOTSTRAP_STAGING_CONTROL_SERVER_URL: ${{ secrets.SIMBOOTSTRAP_STAGING_CONTROL_SERVER_URL }}
         run: >
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\windows-test-node\Invoke-SetupSmoke.ps1
