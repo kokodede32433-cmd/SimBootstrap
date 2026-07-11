@@ -1,0 +1,128 @@
+name: Secure Agent PING E2E
+
+on:
+  workflow_dispatch:
+
+jobs:
+  secure-ping:
+    name: Existing Agent Secure PING
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout SimBootstrap
+        uses: actions/checkout@v4
+
+      - name: Run command-only PING E2E
+        shell: pwsh
+        env:
+          SIMCRM_STAGING_SUPABASE_URL: ${{ secrets.SIMCRM_STAGING_SUPABASE_URL }}
+          SIMCRM_STAGING_SUPABASE_ANON_KEY: ${{ secrets.SIMCRM_STAGING_SUPABASE_ANON_KEY }}
+          SIMCRM_STAGING_PAIR_CODE_TOKEN: ${{ secrets.SIMCRM_STAGING_PAIR_CODE_TOKEN }}
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          foreach ($name in @(
+            "SIMCRM_STAGING_SUPABASE_URL",
+            "SIMCRM_STAGING_SUPABASE_ANON_KEY",
+            "SIMCRM_STAGING_PAIR_CODE_TOKEN"
+          )) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "$name is not configured."
+            }
+            Write-Host "::add-mask::$([Environment]::GetEnvironmentVariable($name))"
+          }
+
+          $supabaseUrl = $env:SIMCRM_STAGING_SUPABASE_URL.TrimEnd("/")
+          $issuerUrl = "$supabaseUrl/functions/v1/create-e2e-agent-command"
+          $headers = @{
+            apikey = $env:SIMCRM_STAGING_SUPABASE_ANON_KEY
+            Authorization = "Bearer $($env:SIMCRM_STAGING_PAIR_CODE_TOKEN)"
+            "Content-Type" = "application/json"
+          }
+
+          function Invoke-E2ECommandIssuer([hashtable]$Body) {
+            $json = $Body | ConvertTo-Json -Compress
+            return Invoke-RestMethod -Method Post -Uri $issuerUrl -Headers $headers -Body $json
+          }
+
+          function Assert-BlockedRpc([string]$Name) {
+            $url = "$supabaseUrl/rest/v1/rpc/$Name"
+            try {
+              Invoke-RestMethod -Method Post -Uri $url -Headers @{
+                apikey = $env:SIMCRM_STAGING_SUPABASE_ANON_KEY
+                "Content-Type" = "application/json"
+              } -Body "{}" | Out-Null
+              throw "$Name unexpectedly executed through anon REST."
+            } catch {
+              $status = $null
+              if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+                $status = [int]$_.Exception.Response.StatusCode
+              }
+              if ($status -ge 200 -and $status -lt 300) {
+                throw "$Name unexpectedly returned HTTP $status."
+              }
+              Write-Host "$Name is absent or blocked for anon/PUBLIC."
+            }
+          }
+
+          Assert-BlockedRpc "create_test_agent_command_v1"
+          Assert-BlockedRpc "get_test_command_status_v1"
+
+          $preflight = Invoke-E2ECommandIssuer @{ action = "preflight" }
+          if (-not $preflight.agent.targetAgentConfigured) {
+            throw "Configured E2E target Agent was not found."
+          }
+          if (-not $preflight.agent.isOnline) {
+            throw "Configured E2E target Agent is not online/recent."
+          }
+          if (-not $preflight.unsafeRpc.createTestAgentCommandAbsentOrBlocked -or -not $preflight.unsafeRpc.getTestCommandStatusAbsentOrBlocked) {
+            throw "Unsafe test RPC contract is still executable."
+          }
+
+          $agentCountBefore = [int]$preflight.agentCount
+          $create = Invoke-E2ECommandIssuer @{ action = "create" }
+          if ([string]::IsNullOrWhiteSpace($create.commandId)) {
+            throw "Command issuer did not return a commandId."
+          }
+          Write-Host "::add-mask::$($create.commandId)"
+          Write-Host "Created one secured PING command."
+
+          $deadline = (Get-Date).AddMinutes(4)
+          $final = $null
+          while ((Get-Date) -lt $deadline) {
+            $status = Invoke-E2ECommandIssuer @{ action = "status"; commandId = $create.commandId }
+            if ($status.status -in @("succeeded", "failed", "expired", "cancelled")) {
+              $final = $status
+              break
+            }
+            Start-Sleep -Seconds 10
+          }
+
+          if ($null -eq $final) {
+            throw "Timed out waiting for PING completion."
+          }
+
+          if ($final.commandType -ne "PING") {
+            throw "Unexpected command type."
+          }
+          if ($final.status -ne "succeeded") {
+            throw "PING did not succeed. Status: $($final.status)"
+          }
+          if ($final.result.message -ne "pong") {
+            throw "PING result was not pong."
+          }
+          if ([int]$final.attemptCount -ne 1) {
+            throw "PING attempt_count was $($final.attemptCount), expected 1."
+          }
+          if ([int]$final.agentCount -ne $agentCountBefore) {
+            throw "Agent count changed from $agentCountBefore to $($final.agentCount)."
+          }
+          if (-not $final.agent.isOnline) {
+            throw "Agent was not online after PING execution."
+          }
+          if (-not $final.unsafeRpc.createTestAgentCommandAbsentOrBlocked -or -not $final.unsafeRpc.getTestCommandStatusAbsentOrBlocked) {
+            throw "Unsafe test RPC contract became executable."
+          }
+
+          Write-Host "Secure PING E2E passed."
