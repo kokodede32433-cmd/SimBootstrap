@@ -111,27 +111,64 @@ function Copy-RedactedFile {
 
 function Remove-QaState {
     Write-Host "Cleaning known SimBootstrap QA service and directories only."
+    $logFile = Join-Path $artifactDirectory "cleanup-log.txt"
+    $logBuilder = [System.Text.StringBuilder]::new()
+    $logBuilder.AppendLine("Cleanup started at $((Get-Date).ToString('O'))") | Out-Null
 
     $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
-    if ($service) {
+    if ($null -eq $service) {
+        $logBuilder.AppendLine("Service '$serviceName' is not present; continuing cleanup.") | Out-Null
+    } else {
+        $logBuilder.AppendLine("Service '$serviceName' exists. Current status: $($service.Status)") | Out-Null
         if ($service.Status -ne "Stopped") {
-            Stop-Service -Name $serviceName -Force -ErrorAction SilentlyContinue
-            $service.WaitForStatus("Stopped", [TimeSpan]::FromSeconds(30))
+            $logBuilder.AppendLine("Attempting to stop service '$serviceName'...") | Out-Null
+            try {
+                Stop-Service -Name $serviceName -Force -ErrorAction Stop
+                $logBuilder.AppendLine("Stop command sent. Waiting for status 'Stopped'...") | Out-Null
+                $service.WaitForStatus("Stopped", [TimeSpan]::FromSeconds(30))
+                $logBuilder.AppendLine("Service successfully stopped.") | Out-Null
+            } catch {
+                $err = $_.Exception.Message
+                $statusSnapshot = (Get-Service -Name $serviceName).Status
+                $logBuilder.AppendLine("ERROR: Failed to stop service. Status: $statusSnapshot. Error: $err") | Out-Null
+                $logBuilder.ToString() | Set-Content -Path $logFile -Encoding UTF8
+                throw "Failed to stop service '$serviceName'. Status: $statusSnapshot. Error: $err"
+            }
+        } else {
+            $logBuilder.AppendLine("Service '$serviceName' is already stopped.") | Out-Null
         }
 
-        & sc.exe delete $serviceName | Out-File -FilePath (Join-Path $artifactDirectory "cleanup-service-delete.txt") -Encoding UTF8
-        Start-Sleep -Seconds 2
+        $logBuilder.AppendLine("Deleting service '$serviceName'...") | Out-Null
+        try {
+            $deleteOutput = & sc.exe delete $serviceName 2>&1
+            $logBuilder.AppendLine("sc.exe delete output: $deleteOutput") | Out-Null
+            Start-Sleep -Seconds 2
+        } catch {
+            $logBuilder.AppendLine("WARNING: sc.exe delete failed: $($_.Exception.Message)") | Out-Null
+        }
     }
 
     foreach ($path in @($programFilesRoot, $programDataRoot)) {
         if (Test-Path $path) {
             if ($path -notin @("C:\Program Files\SimBootstrap", "C:\ProgramData\SimBootstrap")) {
+                $logBuilder.AppendLine("ERROR: Refusing to remove unexpected path: $path") | Out-Null
+                $logBuilder.ToString() | Set-Content -Path $logFile -Encoding UTF8
                 throw "Refusing to remove unexpected path: $path"
             }
-            Remove-Item -Path $path -Recurse -Force -ErrorAction Stop
+            $logBuilder.AppendLine("Removing directory: $path") | Out-Null
+            try {
+                Remove-Item -Path $path -Recurse -Force -ErrorAction Stop
+                $logBuilder.AppendLine("Directory $path successfully removed.") | Out-Null
+            } catch {
+                $logBuilder.AppendLine("WARNING: Failed to remove $path: $($_.Exception.Message)") | Out-Null
+            }
         }
     }
+
+    $logBuilder.AppendLine("Cleanup completed successfully.") | Out-Null
+    $logBuilder.ToString() | Set-Content -Path $logFile -Encoding UTF8
 }
+
 
 function Wait-ForInstallationResult {
     param([TimeSpan] $Timeout)
