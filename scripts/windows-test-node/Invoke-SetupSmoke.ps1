@@ -301,7 +301,7 @@ $validation = [ordered]@{
         Result = "Unknown"
         Process = $agentProcess
         RecentLogCount = $recentAgentLogs.Count
-        FatalStartupHits = @($fatalLogHits | ForEach-Object { ConvertTo-RedactedText "$($_.Path):$($_.LineNumber): $($_.Line)" })
+        FatalStartupHits = @($fatalLogHits | ForEach-Object { ConvertTo-RedactedText ("{0}:{1}: {2}" -f $_.Path, $_.LineNumber, $_.Line) })
     }
 }
 
