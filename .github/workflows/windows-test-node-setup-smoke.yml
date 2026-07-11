@@ -4,9 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "SimBootstrap release tag to test"
-        required: true
+        description: "SimBootstrap release tag to test (optional if building from source)"
+        required: false
         type: string
+      build_from_source:
+        description: "Build Setup.exe from source instead of downloading"
+        required: true
+        default: true
+        type: boolean
       setup_asset_name:
         description: "Setup executable asset name"
         required: true
@@ -21,7 +26,7 @@ on:
           - real-pairing-e2e
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   setup-smoke:
@@ -37,6 +42,40 @@ jobs:
       - name: Checkout SimBootstrap
         uses: actions/checkout@v4
 
+      - name: Checkout SimAgent
+        if: ${{ inputs.build_from_source || inputs.release_tag == '' }}
+        uses: actions/checkout@v4
+        with:
+          repository: kokodede32433-cmd/SimAgent
+          ref: develop
+          path: SimAgent
+
+      - name: Build Setup Release
+        if: ${{ inputs.build_from_source || inputs.release_tag == '' }}
+        shell: pwsh
+        run: |
+          ./scripts/package/Build-SetupRelease.ps1 -SimAgentServiceProject ../SimAgent/src/SimAgent.Service/SimAgent.Service.csproj -OutputDirectory artifacts/setup-release
+
+      - name: Publish Release Candidate
+        if: ${{ inputs.build_from_source || inputs.release_tag == '' }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "setup-simagent-e2e-$(Get-Date -Format 'yyyyMMddHHmmss')"
+          Write-Host "Creating release: $tag"
+          gh release create $tag artifacts/setup-release/SimBootstrap.Setup.exe --prerelease --title "Setup SimAgent E2E Candidate $tag"
+          echo "TEST_RELEASE_TAG=$tag" >> $env:GITHUB_ENV
+
+      - name: Set Release Tag
+        shell: pwsh
+        run: |
+          if ($env:TEST_RELEASE_TAG) {
+              echo "FINAL_RELEASE_TAG=$env:TEST_RELEASE_TAG" >> $env:GITHUB_ENV
+          } else {
+              echo "FINAL_RELEASE_TAG=${{ inputs.release_tag }}" >> $env:GITHUB_ENV
+          }
+
       - name: Run Setup smoke validation
         shell: cmd
         env:
@@ -46,7 +85,7 @@ jobs:
           SIMBOOTSTRAP_STAGING_CONTROL_SERVER_URL: ${{ secrets.SIMBOOTSTRAP_STAGING_CONTROL_SERVER_URL }}
         run: >
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\windows-test-node\Invoke-SetupSmoke.ps1
-          -ReleaseTag "${{ inputs.release_tag }}"
+          -ReleaseTag "%FINAL_RELEASE_TAG%"
           -SetupAssetName "${{ inputs.setup_asset_name }}"
           -TestMode "${{ inputs.test_mode }}"
           -RunId "${{ github.run_id }}-${{ github.run_attempt }}"
@@ -59,3 +98,4 @@ jobs:
           path: C:\SimPlatformTestNode\runs\${{ github.run_id }}-${{ github.run_attempt }}\artifacts
           if-no-files-found: warn
           retention-days: 14
+
