@@ -52,29 +52,24 @@ jobs:
 
       - name: Build Setup Release
         if: ${{ inputs.build_from_source || inputs.release_tag == '' }}
-        shell: powershell
-        run: |
-          ./scripts/package/Build-SetupRelease.ps1 -SimAgentServiceProject ../SimAgent/src/SimAgent.Service/SimAgent.Service.csproj -OutputDirectory artifacts/setup-release
+        shell: cmd
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/package/Build-SetupRelease.ps1 -SimAgentServiceProject ../SimAgent/src/SimAgent.Service/SimAgent.Service.csproj -OutputDirectory artifacts/setup-release
 
       - name: Publish Release Candidate
         if: ${{ inputs.build_from_source || inputs.release_tag == '' }}
-        shell: powershell
+        shell: cmd
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $tag = "setup-simagent-e2e-$(Get-Date -Format 'yyyyMMddHHmmss')"
-          Write-Host "Creating release: $tag"
-          gh release create $tag artifacts/setup-release/SimBootstrap.Setup.exe --prerelease --title "Setup SimAgent E2E Candidate $tag"
-          echo "TEST_RELEASE_TAG=$tag" >> $env:GITHUB_ENV
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$tag = 'setup-simagent-e2e-' + (Get-Date -Format 'yyyyMMddHHmmss'); Write-Host 'Creating release: '$tag; gh release create $tag artifacts/setup-release/SimBootstrap.Setup.exe --prerelease --title 'Setup SimAgent E2E Candidate '$tag; Add-Content -Path $env:GITHUB_ENV -Value \"TEST_RELEASE_TAG=$tag\""
 
       - name: Set Release Tag
-        shell: powershell
+        shell: cmd
         run: |
-          if ($env:TEST_RELEASE_TAG) {
-              echo "FINAL_RELEASE_TAG=$env:TEST_RELEASE_TAG" >> $env:GITHUB_ENV
-          } else {
-              echo "FINAL_RELEASE_TAG=${{ inputs.release_tag }}" >> $env:GITHUB_ENV
-          }
+          if not defined TEST_RELEASE_TAG (
+              echo FINAL_RELEASE_TAG=${{ inputs.release_tag }}>> %GITHUB_ENV%
+          ) else (
+              echo FINAL_RELEASE_TAG=%TEST_RELEASE_TAG%>> %GITHUB_ENV%
+          )
 
       - name: Run Setup smoke validation
         shell: cmd
