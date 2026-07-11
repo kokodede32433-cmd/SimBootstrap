@@ -10,6 +10,8 @@ using System.ServiceProcess;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Net.Http;
+using System.Text;
 using SimBootstrap.Agent;
 using SimBootstrap.Engine.Provisioning;
 
@@ -57,16 +59,137 @@ public sealed class SetupPlatform : ISetupPlatform
     }
 }
 
-public sealed class PreviewPairingClient : IPairingClient
+public sealed class RealPairingClient : IPairingClient
 {
-    public Task ValidatePairCodeAsync(string pairCode, CancellationToken cancellationToken)
+    private static readonly HttpClient SharedHttpClient = new();
+    private readonly HttpClient _httpClient;
+
+    public RealPairingClient()
+        : this(SharedHttpClient)
     {
-        if (!pairCode.Equals("LOCAL-PAIR-CODE", StringComparison.Ordinal))
+    }
+
+    public RealPairingClient(HttpClient httpClient)
+    {
+        _httpClient = httpClient;
+    }
+
+    public async Task<PairingResponse> PairAsync(
+        string pairingCode,
+        string controlServerUrl,
+        string machineId,
+        string machineName,
+        string agentVersion,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(pairingCode))
         {
-            throw new InvalidOperationException("Preview builds only accept LOCAL-PAIR-CODE.");
+            throw new ArgumentException("Pair code cannot be empty.");
         }
 
-        return Task.CompletedTask;
+        if (string.IsNullOrWhiteSpace(controlServerUrl))
+        {
+            throw new ArgumentException("Control server URL cannot be empty.");
+        }
+
+        var requestBody = new
+        {
+            pairCode = pairingCode,
+            machineId = machineId,
+            machineName = machineName,
+            agentVersion = agentVersion
+        };
+
+        var json = JsonSerializer.Serialize(requestBody);
+        using var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+        try
+        {
+            using var response = await _httpClient.PostAsync(controlServerUrl, content, cancellationToken);
+            var responseString = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                try
+                {
+                    var payload = JsonSerializer.Deserialize<PairingResponsePayload>(responseString, options);
+                    if (payload == null ||
+                        string.IsNullOrWhiteSpace(payload.AgentId) ||
+                        string.IsNullOrWhiteSpace(payload.ClubId) ||
+                        string.IsNullOrWhiteSpace(payload.LocationId) ||
+                        string.IsNullOrWhiteSpace(payload.MachineCredential))
+                    {
+                        throw new InvalidOperationException("Failed to parse registration credentials from the pairing service.");
+                    }
+
+                    return new PairingResponse(
+                        payload.AgentId,
+                        payload.ClubId,
+                        payload.LocationId,
+                        payload.MachineCredential
+                    );
+                }
+                catch (JsonException)
+                {
+                    throw new InvalidOperationException("Failed to parse registration credentials from the pairing service.");
+                }
+            }
+
+            // Handle API error codes
+            string errorCode = "INTERNAL_ERROR";
+            string errorMessage = "An unknown error occurred during pairing.";
+
+            try
+            {
+                var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                var errorPayload = JsonSerializer.Deserialize<ErrorResponsePayload>(responseString, options);
+                if (errorPayload?.Error != null)
+                {
+                    errorCode = errorPayload.Error.Code ?? "INTERNAL_ERROR";
+                    errorMessage = errorPayload.Error.Message ?? errorMessage;
+                }
+            }
+            catch
+            {
+                // Fallback to generic status error if JSON parsing fails
+            }
+
+            throw errorCode switch
+            {
+                "INVALID_PAIR_CODE" => new InvalidOperationException("Pairing code is invalid."),
+                "PAIR_CODE_EXPIRED" => new InvalidOperationException("Pairing code has expired."),
+                "PAIR_CODE_ALREADY_USED" => new InvalidOperationException("Pairing code has already been used."),
+                "MACHINE_ALREADY_PAIRED" => new InvalidOperationException("This machine has already been paired."),
+                "PAIRING_RATE_LIMITED" => new InvalidOperationException("Too many pairing attempts. Please try again later."),
+                "PAIRING_UNAVAILABLE" => new InvalidOperationException("Pairing service is currently unavailable."),
+                "INTERNAL_ERROR" => new InvalidOperationException("Pairing service returned an internal error."),
+                _ => new InvalidOperationException($"Pairing failed with error code {errorCode}.")
+            };
+        }
+        catch (HttpRequestException ex)
+        {
+            throw new InvalidOperationException("Network connection failed. Please verify internet connectivity and try again.", ex);
+        }
+    }
+
+    private sealed class PairingResponsePayload
+    {
+        public string AgentId { get; set; } = string.Empty;
+        public string? ClubId { get; set; }
+        public string? LocationId { get; set; }
+        public string MachineCredential { get; set; } = string.Empty;
+    }
+
+    private sealed class ErrorResponsePayload
+    {
+        public ErrorDetails? Error { get; set; }
+    }
+
+    private sealed class ErrorDetails
+    {
+        public string? Code { get; set; }
+        public string? Message { get; set; }
     }
 }
 
@@ -77,11 +200,45 @@ public sealed class SetupFileSystem : ISetupFileSystem
     public string ReadAllText(string path) => File.ReadAllText(path);
     public void WriteAllText(string path, string contents) => File.WriteAllText(path, contents);
     public void CopyFile(string sourcePath, string destinationPath, bool overwrite) => File.Copy(sourcePath, destinationPath, overwrite);
+    public void MoveFile(string sourcePath, string destinationPath, bool overwrite) => File.Move(sourcePath, destinationPath, overwrite);
+    public void DeleteFile(string path)
+    {
+        if (File.Exists(path))
+        {
+            File.Delete(path);
+        }
+    }
+
     public void DeleteDirectory(string path, bool recursive)
     {
         if (Directory.Exists(path))
         {
             Directory.Delete(path, recursive);
+        }
+    }
+}
+
+public sealed class WindowsAgentConfigAcl : IAgentConfigAcl
+{
+    private readonly IProcessRunner _processRunner;
+
+    public WindowsAgentConfigAcl(IProcessRunner processRunner)
+    {
+        _processRunner = processRunner;
+    }
+
+    public async Task ApplyRestrictedAclAsync(string filePath, CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var arguments = $"\"{filePath}\" /inheritance:r /grant:r *S-1-5-18:(F) *S-1-5-32-544:(F)";
+        var result = await _processRunner.RunAsync("icacls.exe", arguments, cancellationToken);
+        if (result.ExitCode != 0)
+        {
+            throw new InvalidOperationException("Failed to restrict agent settings ACL.");
         }
     }
 }

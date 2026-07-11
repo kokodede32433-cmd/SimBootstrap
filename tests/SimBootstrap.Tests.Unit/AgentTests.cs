@@ -25,7 +25,7 @@ public class AgentTests
 
         public Task<string> RegisterAsync(AgentSettings settings, CancellationToken cancellationToken)
         {
-            Calls.Add($"register:{settings.PairCode}");
+            Calls.Add($"register:{settings.AgentId}");
             return Task.FromResult("registration-123");
         }
 
@@ -78,8 +78,10 @@ public class AgentTests
         var settings = new AgentSettings
         {
             AgentId = "agent-001",
-            PairCode = "PAIR-001",
-            MockControlServerUrl = "mock://local-control",
+            LocationId = "loc-001",
+            ClubId = "club-001",
+            MachineCredential = "cred-001",
+            ControlServerUrl = "mock://local-control",
             HeartbeatIntervalSeconds = 30
         };
         var server = new RecordingControlServerClient(new MockAgentTask("task-001", MockAgentTaskKind.Echo, "hello from task"));
@@ -94,7 +96,7 @@ public class AgentTests
         Assert.Equal("task-001", result.TaskId);
         Assert.Equal(new[]
         {
-            "register:PAIR-001",
+            "register:agent-001",
             "heartbeat:registration-123",
             "poll:registration-123",
             "report:registration-123:task-001:True"
@@ -110,7 +112,11 @@ public class AgentTests
         var settings = new AgentSettings
         {
             AgentId = "agent-002",
-            PairCode = "PAIR-002"
+            LocationId = "loc-002",
+            ClubId = "club-002",
+            MachineCredential = "cred-002",
+            ControlServerUrl = "https://control.example.test",
+            HeartbeatIntervalSeconds = 60
         };
         var server = new RecordingControlServerClient(task: null);
         var runner = new AgentRunner(server, new InMemoryAgentLogWriter());
@@ -129,8 +135,10 @@ public class AgentTests
         await File.WriteAllTextAsync(path, """
 {
   "agentId": "agent-003",
-  "pairCode": "PAIR-003",
-  "mockControlServerUrl": "mock://local-control",
+  "locationId": "loc-003",
+  "clubId": "club-003",
+  "machineCredential": "cred-003",
+  "controlServerUrl": "https://control.example.test",
   "heartbeatIntervalSeconds": 15
 }
 """);
@@ -140,7 +148,8 @@ public class AgentTests
             var settings = await AgentSettingsLoader.LoadAsync(path);
 
             Assert.Equal("agent-003", settings.AgentId);
-            Assert.Equal("PAIR-003", settings.PairCode);
+            Assert.Equal("cred-003", settings.MachineCredential);
+            Assert.Equal("https://control.example.test", settings.ControlServerUrl);
             Assert.Equal(15, settings.HeartbeatIntervalSeconds);
         }
         finally
@@ -150,13 +159,15 @@ public class AgentTests
     }
 
     [Fact]
-    public async Task AgentSettingsLoader_MissingPairCode_FailsValidation()
+    public async Task AgentSettingsLoader_MissingMachineCredential_FailsValidation()
     {
         var path = Path.Combine(Path.GetTempPath(), $"agentsettings-{Guid.NewGuid():N}.json");
         await File.WriteAllTextAsync(path, """
 {
   "agentId": "agent-004",
-  "mockControlServerUrl": "mock://local-control",
+  "locationId": "loc-004",
+  "clubId": "club-004",
+  "controlServerUrl": "https://control.example.test",
   "heartbeatIntervalSeconds": 15
 }
 """);
@@ -164,7 +175,7 @@ public class AgentTests
         try
         {
             var ex = await Assert.ThrowsAsync<ArgumentException>(() => AgentSettingsLoader.LoadAsync(path));
-            Assert.Equal("agentSettings.pairCode is required.", ex.Message);
+            Assert.Equal("agentSettings.machineCredential is required.", ex.Message);
         }
         finally
         {
@@ -268,7 +279,10 @@ public class AgentTests
         var settings = new AgentSettings
         {
             AgentId = "agent-service",
-            PairCode = "PAIR-SERVICE",
+            LocationId = "loc-service",
+            ClubId = "club-service",
+            MachineCredential = "cred-service",
+            ControlServerUrl = "https://control.example.test",
             HeartbeatIntervalSeconds = 60
         };
         var server = new RecordingControlServerClient(task: null);

@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -16,6 +17,7 @@ public sealed class SetupOrchestrator
     private readonly IAgentPayloadExtractor _payloadExtractor;
     private readonly ISetupProvisioner _provisioner;
     private readonly ISetupServiceManager _serviceManager;
+    private readonly IAgentConfigAcl _agentConfigAcl;
     private readonly SetupPaths _paths;
 
     public SetupOrchestrator(
@@ -25,6 +27,7 @@ public sealed class SetupOrchestrator
         IAgentPayloadExtractor payloadExtractor,
         ISetupProvisioner provisioner,
         ISetupServiceManager serviceManager,
+        IAgentConfigAcl agentConfigAcl,
         SetupPaths? paths = null)
     {
         _platform = platform;
@@ -33,6 +36,7 @@ public sealed class SetupOrchestrator
         _payloadExtractor = payloadExtractor;
         _provisioner = provisioner;
         _serviceManager = serviceManager;
+        _agentConfigAcl = agentConfigAcl;
         _paths = paths ?? new SetupPaths();
     }
 
@@ -41,6 +45,7 @@ public sealed class SetupOrchestrator
         var result = new SetupResult();
         var agentPayloadCopied = false;
         var serviceInstallAttempted = false;
+        PairingResponse? pairingResponse = null;
 
         async Task LogAsync(SetupState state, string message)
         {
@@ -73,8 +78,8 @@ public sealed class SetupOrchestrator
                 return result;
             }
 
-            await _pairingClient.ValidatePairCodeAsync(options.PairCode, cancellationToken);
-            await LogAsync(SetupState.Preparing, "Preview pairing validated with mock LOCAL-PAIR-CODE.");
+            var config = LoadSetupConfig();
+            config.Validate();
 
             foreach (var directory in new[]
             {
@@ -92,10 +97,22 @@ public sealed class SetupOrchestrator
 
             await LogAsync(SetupState.InstallingAgent, "Extracting Agent payload.");
             await _payloadExtractor.ExtractAsync(_paths.ProgramFilesAgentDirectory, _fileSystem, cancellationToken);
+            ValidateAgentPayload();
             agentPayloadCopied = true;
 
+            await LogAsync(SetupState.Preparing, "Connecting to pairing service...");
+            pairingResponse = await _pairingClient.PairAsync(
+                options.PairingCode,
+                config.ControlServerUrl,
+                Environment.MachineName,
+                Environment.MachineName,
+                "1.0.0",
+                cancellationToken);
+
+            await LogAsync(SetupState.Preparing, "Pairing successful.");
+
             await LogAsync(SetupState.InstallingAgent, "Writing agentsettings.json.");
-            WriteAgentSettings(options.PairCode);
+            await WriteAgentSettingsAsync(pairingResponse, config.ControlServerUrl, cancellationToken);
 
             await LogAsync(SetupState.ConfiguringService, "Installing or updating Windows Service.");
             serviceInstallAttempted = true;
@@ -115,9 +132,10 @@ public sealed class SetupOrchestrator
         }
         catch (Exception ex)
         {
-            await LogAsync(SetupState.Failed, ex.Message);
+            var safeMessage = RedactSensitive(ex.Message, options.PairingCode, pairingResponse?.MachineCredential);
+            await LogAsync(SetupState.Failed, safeMessage);
             result.Success = false;
-            result.Message = ex.Message;
+            result.Message = safeMessage;
             WriteInstallationResult(result);
 
             if (serviceInstallAttempted || agentPayloadCopied)
@@ -127,7 +145,7 @@ public sealed class SetupOrchestrator
                     await _serviceManager.UninstallIfCreatedAsync(cancellationToken);
                     if (agentPayloadCopied)
                     {
-                    _fileSystem.DeleteDirectory(_paths.ProgramFilesAgentDirectory, recursive: true);
+                        _fileSystem.DeleteDirectory(_paths.ProgramFilesAgentDirectory, recursive: true);
                     }
                 }
                 catch
@@ -140,31 +158,61 @@ public sealed class SetupOrchestrator
         }
     }
 
-    private void WriteAgentSettings(string pairCode)
+    private SetupConfig LoadSetupConfig()
     {
-        if (_fileSystem.FileExists(_paths.AgentSettingsPath))
+        if (_fileSystem.FileExists(_paths.SetupConfigPath))
         {
-            var existing = _fileSystem.ReadAllText(_paths.AgentSettingsPath);
             try
             {
-                var settings = JsonSerializer.Deserialize<AgentSettings>(existing, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                settings?.Validate();
-                return;
+                var content = _fileSystem.ReadAllText(_paths.SetupConfigPath);
+                var config = JsonSerializer.Deserialize<SetupConfig>(content, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (config != null)
+                {
+                    return config;
+                }
             }
             catch
             {
-                // Invalid config is replaced below.
+                // Fallback to default
             }
         }
 
+        return new SetupConfig();
+    }
+
+    private async Task WriteAgentSettingsAsync(PairingResponse pairing, string controlServerUrl, CancellationToken cancellationToken)
+    {
         var newSettings = new AgentSettings
         {
-            AgentId = Environment.MachineName,
-            PairCode = pairCode,
-            MockControlServerUrl = "mock://local-control",
+            AgentId = pairing.AgentId,
+            LocationId = pairing.LocationId,
+            ClubId = pairing.ClubId,
+            MachineCredential = pairing.MachineCredential,
+            ControlServerUrl = controlServerUrl,
             HeartbeatIntervalSeconds = 60
         };
-        _fileSystem.WriteAllText(_paths.AgentSettingsPath, JsonSerializer.Serialize(newSettings, new JsonSerializerOptions { WriteIndented = true }));
+        newSettings.Validate();
+        _fileSystem.CreateDirectory(_paths.ProgramDataConfigDirectory);
+        var tempPath = $"{_paths.AgentSettingsPath}.tmp";
+        try
+        {
+            _fileSystem.WriteAllText(tempPath, JsonSerializer.Serialize(newSettings, new JsonSerializerOptions { WriteIndented = true }));
+            await _agentConfigAcl.ApplyRestrictedAclAsync(tempPath, cancellationToken);
+            _fileSystem.MoveFile(tempPath, _paths.AgentSettingsPath, overwrite: true);
+        }
+        catch
+        {
+            _fileSystem.DeleteFile(tempPath);
+            throw;
+        }
+    }
+
+    private void ValidateAgentPayload()
+    {
+        if (!_fileSystem.FileExists(_paths.AgentExePath))
+        {
+            throw new InvalidOperationException("Agent payload validation failed: agent process executable is missing.");
+        }
     }
 
     private async Task VerifyAsync(CancellationToken cancellationToken)
@@ -195,7 +243,7 @@ public sealed class SetupOrchestrator
 
     private static string BuildElevationArguments(SetupOptions options)
     {
-        return $"--pair-code \"{options.PairCode}\"";
+        return $"--pair-code \"{options.PairingCode}\"";
     }
 
     private static string FormatElapsed(TimeSpan elapsed)
@@ -203,6 +251,20 @@ public sealed class SetupOrchestrator
         return elapsed.TotalSeconds >= 1
             ? string.Create(CultureInfo.InvariantCulture, $"{elapsed.TotalSeconds:0.0} seconds")
             : string.Create(CultureInfo.InvariantCulture, $"{elapsed.TotalMilliseconds:0} ms");
+    }
+
+    private static string RedactSensitive(string message, params string?[] sensitiveValues)
+    {
+        var redacted = message;
+        foreach (var value in sensitiveValues)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                redacted = redacted.Replace(value, "[REDACTED]", StringComparison.Ordinal);
+            }
+        }
+
+        return redacted;
     }
 
     private static JsonSerializerOptions CreateResultJsonOptions()

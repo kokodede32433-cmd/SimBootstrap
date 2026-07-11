@@ -32,7 +32,7 @@ public sealed class AgentRunner
         if (string.IsNullOrWhiteSpace(_registrationId))
         {
             _registrationId = await _controlServer.RegisterAsync(settings, cancellationToken);
-            await RecordAsync($"Registered with mock control server using PairCode '{settings.PairCode}'.");
+            await RecordAsync("Registered with mock control server.");
         }
         else
         {

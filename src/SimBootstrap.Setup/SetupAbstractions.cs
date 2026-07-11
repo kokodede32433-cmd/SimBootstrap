@@ -27,9 +27,11 @@ public interface ISetupPlatform
     Task<bool> RelaunchElevatedAsync(string arguments, CancellationToken cancellationToken);
 }
 
+public record PairingResponse(string AgentId, string ClubId, string LocationId, string MachineCredential);
+
 public interface IPairingClient
 {
-    Task ValidatePairCodeAsync(string pairCode, CancellationToken cancellationToken);
+    Task<PairingResponse> PairAsync(string pairingCode, string controlServerUrl, string machineId, string machineName, string agentVersion, CancellationToken cancellationToken);
 }
 
 public interface ISetupFileSystem
@@ -39,7 +41,14 @@ public interface ISetupFileSystem
     string ReadAllText(string path);
     void WriteAllText(string path, string contents);
     void CopyFile(string sourcePath, string destinationPath, bool overwrite);
+    void MoveFile(string sourcePath, string destinationPath, bool overwrite);
+    void DeleteFile(string path);
     void DeleteDirectory(string path, bool recursive);
+}
+
+public interface IAgentConfigAcl
+{
+    Task ApplyRestrictedAclAsync(string filePath, CancellationToken cancellationToken);
 }
 
 public interface IAgentPayloadExtractor

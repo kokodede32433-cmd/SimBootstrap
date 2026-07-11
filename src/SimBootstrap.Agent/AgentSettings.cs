@@ -5,8 +5,10 @@ namespace SimBootstrap.Agent;
 public class AgentSettings
 {
     public string AgentId { get; set; } = string.Empty;
-    public string PairCode { get; set; } = string.Empty;
-    public string MockControlServerUrl { get; set; } = "mock://local-control";
+    public string LocationId { get; set; } = string.Empty;
+    public string ClubId { get; set; } = string.Empty;
+    public string MachineCredential { get; set; } = string.Empty;
+    public string ControlServerUrl { get; set; } = string.Empty;
     public int HeartbeatIntervalSeconds { get; set; } = 60;
 
     public void Validate()
@@ -16,14 +18,24 @@ public class AgentSettings
             throw new ArgumentException("agentSettings.agentId is required.");
         }
 
-        if (string.IsNullOrWhiteSpace(PairCode))
+        if (string.IsNullOrWhiteSpace(LocationId))
         {
-            throw new ArgumentException("agentSettings.pairCode is required.");
+            throw new ArgumentException("agentSettings.locationId is required.");
         }
 
-        if (string.IsNullOrWhiteSpace(MockControlServerUrl))
+        if (string.IsNullOrWhiteSpace(ClubId))
         {
-            throw new ArgumentException("agentSettings.mockControlServerUrl is required.");
+            throw new ArgumentException("agentSettings.clubId is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(MachineCredential))
+        {
+            throw new ArgumentException("agentSettings.machineCredential is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(ControlServerUrl))
+        {
+            throw new ArgumentException("agentSettings.controlServerUrl is required.");
         }
 
         if (HeartbeatIntervalSeconds <= 0)

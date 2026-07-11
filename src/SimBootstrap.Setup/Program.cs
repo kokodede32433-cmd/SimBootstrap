@@ -19,27 +19,29 @@ public static class Program
             return;
         }
 
-        var pairCode = GetPairCode(args);
-        if (string.IsNullOrWhiteSpace(pairCode))
+        var pairingCode = GetPairingCode(args);
+        if (string.IsNullOrWhiteSpace(pairingCode))
         {
             Console.Write("Pair Code: ");
-            pairCode = Console.ReadLine() ?? string.Empty;
+            pairingCode = Console.ReadLine() ?? string.Empty;
         }
 
+        var processRunner = new ProcessRunner();
         var orchestrator = new SetupOrchestrator(
             new SetupPlatform(),
-            new PreviewPairingClient(),
+            new RealPairingClient(),
             new SetupFileSystem(),
             new EmbeddedAgentPayloadExtractor(),
             new ProvisioningSetupProvisioner(),
-            new AgentServiceSetupManager(new ProcessRunner()));
+            new AgentServiceSetupManager(processRunner),
+            new WindowsAgentConfigAcl(processRunner));
 
-        var result = await orchestrator.RunAsync(new SetupOptions(pairCode, NonInteractive: false));
+        var result = await orchestrator.RunAsync(new SetupOptions(pairingCode, NonInteractive: false));
         Console.WriteLine(result.Message);
         Environment.Exit(result.Success ? 0 : 1);
     }
 
-    private static string? GetPairCode(string[] args)
+    private static string? GetPairingCode(string[] args)
     {
         for (var i = 0; i < args.Length; i++)
         {

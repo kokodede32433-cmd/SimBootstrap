@@ -34,7 +34,7 @@ public sealed class MockControlServerClient : IMockControlServerClient
 {
     public Task<string> RegisterAsync(AgentSettings settings, CancellationToken cancellationToken)
     {
-        var registrationId = $"mock-registration-{settings.PairCode.Trim()}";
+        var registrationId = $"mock-registration-{settings.AgentId.Trim()}";
         return Task.FromResult(registrationId);
     }
 

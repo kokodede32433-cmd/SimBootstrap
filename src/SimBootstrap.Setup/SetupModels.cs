@@ -16,7 +16,7 @@ public enum SetupState
     Failed
 }
 
-public sealed record SetupOptions(string PairCode, bool NonInteractive = false);
+public sealed record SetupOptions(string PairingCode, bool NonInteractive = false);
 
 public sealed record SetupStepLog(DateTimeOffset Timestamp, SetupState State, string Message);
 
@@ -38,4 +38,32 @@ public sealed class SetupPaths
     public string InstallationResultPath => Path.Combine(ProgramDataStateDirectory, "installation-result.json");
     public string SetupLogPath => Path.Combine(ProgramDataLogsDirectory, "simbootstrap-setup.log");
     public string AgentExePath => Path.Combine(ProgramFilesAgentDirectory, "SimBootstrap.Agent.exe");
+    public string SetupConfigPath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "setupconfig.json");
+}
+
+public sealed class SetupConfig
+{
+    public string ControlServerUrl { get; set; } = string.Empty;
+
+    public void Validate()
+    {
+        if (string.IsNullOrWhiteSpace(ControlServerUrl))
+        {
+            throw new ArgumentException("setupConfig.controlServerUrl is required.");
+        }
+
+        if (!Uri.TryCreate(ControlServerUrl, UriKind.Absolute, out var uri))
+        {
+            throw new ArgumentException("setupConfig.controlServerUrl must be an absolute URI.");
+        }
+
+        var isLocalDevelopment =
+            uri.IsLoopback ||
+            string.Equals(uri.Host, "localhost", StringComparison.OrdinalIgnoreCase);
+
+        if (!isLocalDevelopment && uri.Scheme != Uri.UriSchemeHttps)
+        {
+            throw new ArgumentException("setupConfig.controlServerUrl must use HTTPS outside local development.");
+        }
+    }
 }
