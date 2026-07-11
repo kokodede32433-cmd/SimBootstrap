@@ -39,7 +39,10 @@ jobs:
 
       - name: Create diagnostics directory
         shell: cmd
-        run: mkdir "C:\SimPlatformTestNode\runs\${{ github.run_id }}-${{ github.run_attempt }}\artifacts"
+        run: |
+          mkdir "C:\SimPlatformTestNode\runs\${{ github.run_id }}-${{ github.run_attempt }}\artifacts"
+          echo Smoke invocation starting > "C:\SimPlatformTestNode\runs\${{ github.run_id }}-${{ github.run_attempt }}\artifacts\workflow-preflight.txt"
+
 
       - name: Run Setup smoke validation
         shell: cmd

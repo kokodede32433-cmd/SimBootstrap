@@ -158,9 +158,9 @@ function Remove-QaState {
             $logBuilder.AppendLine("Removing directory: $path") | Out-Null
             try {
                 Remove-Item -Path $path -Recurse -Force -ErrorAction Stop
-                $logBuilder.AppendLine("Directory $path successfully removed.") | Out-Null
+                $logBuilder.AppendLine(("Directory {0} successfully removed." -f $path)) | Out-Null
             } catch {
-                $logBuilder.AppendLine("WARNING: Failed to remove $path: $($_.Exception.Message)") | Out-Null
+                $logBuilder.AppendLine(("WARNING: Failed to remove {0}: {1}" -f $path, $_.Exception.Message)) | Out-Null
             }
         }
     }
