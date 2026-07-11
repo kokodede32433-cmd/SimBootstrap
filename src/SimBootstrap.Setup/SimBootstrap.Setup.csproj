@@ -6,6 +6,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="System.ServiceProcess.ServiceController" />
     <ProjectReference Include="..\SimBootstrap.Agent\SimBootstrap.Agent.csproj" />
     <ProjectReference Include="..\SimBootstrap.Engine\SimBootstrap.Engine.csproj" />
   </ItemGroup>

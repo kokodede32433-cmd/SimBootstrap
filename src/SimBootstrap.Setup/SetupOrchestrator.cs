@@ -1,5 +1,7 @@
 using System;
+using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using SimBootstrap.Agent;
@@ -105,9 +107,9 @@ public sealed class SetupOrchestrator
             await LogAsync(SetupState.Verifying, "Verifying installation.");
             await VerifyAsync(cancellationToken);
 
-            await LogAsync(SetupState.Completed, "Setup completed successfully.");
+            await LogAsync(SetupState.Completed, "Installation completed successfully.");
             result.Success = true;
-            result.Message = "SimBootstrap setup completed successfully.";
+            result.Message = "Installation completed successfully.";
             WriteInstallationResult(result);
             return result;
         }
@@ -167,14 +169,11 @@ public sealed class SetupOrchestrator
 
     private async Task VerifyAsync(CancellationToken cancellationToken)
     {
-        if (!await _serviceManager.ExistsAsync(cancellationToken))
+        var waitResult = await _serviceManager.WaitForRunningAsync(TimeSpan.FromSeconds(30), TimeSpan.FromMilliseconds(500), cancellationToken);
+        if (!waitResult.ReachedRunning)
         {
-            throw new InvalidOperationException("Verification failed: service does not exist.");
-        }
-
-        if (!await _serviceManager.IsRunningAsync(cancellationToken))
-        {
-            throw new InvalidOperationException("Verification failed: service is not Running.");
+            throw new InvalidOperationException(
+                $"Verification failed: service did not reach Running within 30 seconds. Last observed status: {waitResult.LastStatus}. Elapsed timeout: {FormatElapsed(waitResult.Elapsed)}.");
         }
 
         var settingsJson = _fileSystem.ReadAllText(_paths.AgentSettingsPath);
@@ -191,11 +190,25 @@ public sealed class SetupOrchestrator
     private void WriteInstallationResult(SetupResult result)
     {
         _fileSystem.CreateDirectory(_paths.ProgramDataStateDirectory);
-        _fileSystem.WriteAllText(_paths.InstallationResultPath, JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true }));
+        _fileSystem.WriteAllText(_paths.InstallationResultPath, JsonSerializer.Serialize(result, CreateResultJsonOptions()));
     }
 
     private static string BuildElevationArguments(SetupOptions options)
     {
         return $"--pair-code \"{options.PairCode}\"";
+    }
+
+    private static string FormatElapsed(TimeSpan elapsed)
+    {
+        return elapsed.TotalSeconds >= 1
+            ? string.Create(CultureInfo.InvariantCulture, $"{elapsed.TotalSeconds:0.0} seconds")
+            : string.Create(CultureInfo.InvariantCulture, $"{elapsed.TotalMilliseconds:0} ms");
+    }
+
+    private static JsonSerializerOptions CreateResultJsonOptions()
+    {
+        var options = new JsonSerializerOptions { WriteIndented = true };
+        options.Converters.Add(new JsonStringEnumConverter());
+        return options;
     }
 }

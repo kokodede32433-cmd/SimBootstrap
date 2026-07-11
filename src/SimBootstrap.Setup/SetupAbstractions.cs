@@ -1,7 +1,23 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace SimBootstrap.Setup;
+
+public enum SetupServiceStatus
+{
+    Missing,
+    Unknown,
+    Stopped,
+    StartPending,
+    StopPending,
+    Running,
+    ContinuePending,
+    PausePending,
+    Paused
+}
+
+public sealed record ServiceWaitResult(bool ReachedRunning, SetupServiceStatus LastStatus, TimeSpan Elapsed);
 
 public interface ISetupPlatform
 {
@@ -40,7 +56,6 @@ public interface ISetupServiceManager
 {
     Task InstallOrUpdateAsync(string agentExePath, string configPath, CancellationToken cancellationToken);
     Task StartAsync(CancellationToken cancellationToken);
-    Task<bool> ExistsAsync(CancellationToken cancellationToken);
-    Task<bool> IsRunningAsync(CancellationToken cancellationToken);
+    Task<ServiceWaitResult> WaitForRunningAsync(TimeSpan timeout, TimeSpan retryInterval, CancellationToken cancellationToken);
     Task UninstallIfCreatedAsync(CancellationToken cancellationToken);
 }

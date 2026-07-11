@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using SimBootstrap.Agent;
 using SimBootstrap.Setup;
 using Xunit;
 
@@ -81,7 +82,7 @@ public class SetupTests
         public bool Started { get; private set; }
         public bool Uninstalled { get; private set; }
         public bool FailInstall { get; init; }
-        public bool VerificationRunning { get; init; } = true;
+        public ServiceWaitResult VerificationResult { get; init; } = new(true, SetupServiceStatus.Running, TimeSpan.FromMilliseconds(1));
 
         public Task InstallOrUpdateAsync(string agentExePath, string configPath, CancellationToken cancellationToken)
         {
@@ -99,13 +100,39 @@ public class SetupTests
             return Task.CompletedTask;
         }
 
-        public Task<bool> ExistsAsync(CancellationToken cancellationToken) => Task.FromResult(Installed);
-        public Task<bool> IsRunningAsync(CancellationToken cancellationToken) => Task.FromResult(VerificationRunning);
+        public Task<ServiceWaitResult> WaitForRunningAsync(TimeSpan timeout, TimeSpan retryInterval, CancellationToken cancellationToken)
+            => Task.FromResult(VerificationResult);
 
         public Task UninstallIfCreatedAsync(CancellationToken cancellationToken)
         {
             Uninstalled = true;
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FakeStatusReader : IWindowsServiceStatusReader
+    {
+        private readonly Queue<SetupServiceStatus> _statuses;
+
+        public FakeStatusReader(params SetupServiceStatus[] statuses)
+        {
+            _statuses = new Queue<SetupServiceStatus>(statuses);
+        }
+
+        public Task<SetupServiceStatus> GetStatusAsync(string serviceName, CancellationToken cancellationToken)
+        {
+            return Task.FromResult(_statuses.Count > 1 ? _statuses.Dequeue() : _statuses.Peek());
+        }
+    }
+
+    private sealed class FakeProcessRunner : IProcessRunner
+    {
+        public List<string> Commands { get; } = new();
+
+        public Task<CommandExecutionResult> RunAsync(string fileName, string arguments, CancellationToken cancellationToken = default)
+        {
+            Commands.Add($"{fileName} {arguments}");
+            return Task.FromResult(new CommandExecutionResult(0, "Состояние: 4 RUNNING", string.Empty));
         }
     }
 
@@ -152,6 +179,9 @@ public class SetupTests
         Assert.True(service.Installed);
         Assert.True(service.Started);
         Assert.True(fileSystem.FileExists(paths.InstallationResultPath));
+        Assert.Equal("Installation completed successfully.", result.Message);
+        Assert.Contains("\"Success\": true", fileSystem.ReadAllText(paths.InstallationResultPath));
+        Assert.Contains("\"State\": \"Completed\"", fileSystem.ReadAllText(paths.InstallationResultPath));
     }
 
     [Fact]
@@ -176,14 +206,86 @@ public class SetupTests
     }
 
     [Fact]
-    public async Task Setup_VerificationFailure_ReturnsControlledFailure()
+    public async Task Setup_StartPendingThenRunning_Succeeds()
     {
-        var setup = CreateSetup(service: new FakeServiceManager { VerificationRunning = false });
+        var processRunner = new FakeProcessRunner();
+        var statusReader = new FakeStatusReader(SetupServiceStatus.StartPending, SetupServiceStatus.Running);
+        var manager = new AgentServiceSetupManager(processRunner, statusReader);
+
+        var waitResult = await manager.WaitForRunningAsync(TimeSpan.FromSeconds(1), TimeSpan.FromMilliseconds(1), CancellationToken.None);
+
+        Assert.True(waitResult.ReachedRunning);
+        var fileSystem = new FakeFileSystem();
+        var paths = TestPaths();
+        var service = new FakeServiceManager
+        {
+            VerificationResult = new ServiceWaitResult(true, SetupServiceStatus.Running, TimeSpan.FromMilliseconds(500))
+        };
+        var setup = CreateSetup(fileSystem: fileSystem, service: service, paths: paths);
+
+        var result = await setup.RunAsync(new SetupOptions("LOCAL-PAIR-CODE"));
+
+        Assert.True(result.Success);
+        Assert.Contains("\"Success\": true", fileSystem.ReadAllText(paths.InstallationResultPath));
+        Assert.Contains("\"State\": \"Completed\"", fileSystem.ReadAllText(paths.InstallationResultPath));
+        Assert.Contains("Installation completed successfully.", fileSystem.ReadAllText(paths.InstallationResultPath));
+    }
+
+    [Fact]
+    public async Task Setup_ImmediateRunning_Succeeds()
+    {
+        var setup = CreateSetup(service: new FakeServiceManager
+        {
+            VerificationResult = new ServiceWaitResult(true, SetupServiceStatus.Running, TimeSpan.Zero)
+        });
+
+        var result = await setup.RunAsync(new SetupOptions("LOCAL-PAIR-CODE"));
+
+        Assert.True(result.Success);
+    }
+
+    [Fact]
+    public async Task Setup_LocalizedScOutput_IsIrrelevantForRunningVerification()
+    {
+        var processRunner = new FakeProcessRunner();
+        var statusReader = new FakeStatusReader(SetupServiceStatus.Running);
+        var service = new AgentServiceSetupManager(processRunner, statusReader);
+
+        var result = await service.WaitForRunningAsync(TimeSpan.FromSeconds(1), TimeSpan.FromMilliseconds(1), CancellationToken.None);
+
+        Assert.True(result.ReachedRunning);
+        Assert.Empty(processRunner.Commands);
+    }
+
+    [Fact]
+    public async Task Setup_VerificationTimeout_ReturnsControlledFailure()
+    {
+        var setup = CreateSetup(service: new FakeServiceManager
+        {
+            VerificationResult = new ServiceWaitResult(false, SetupServiceStatus.StartPending, TimeSpan.FromSeconds(30))
+        });
 
         var result = await setup.RunAsync(new SetupOptions("LOCAL-PAIR-CODE"));
 
         Assert.False(result.Success);
-        Assert.Contains("service is not Running", result.Message);
+        Assert.Contains("did not reach Running", result.Message);
+        Assert.Contains("Last observed status: StartPending", result.Message);
+        Assert.Contains("Elapsed timeout: 30.0 seconds", result.Message);
+    }
+
+    [Fact]
+    public async Task Setup_ServiceMissing_ReturnsControlledFailure()
+    {
+        var setup = CreateSetup(service: new FakeServiceManager
+        {
+            VerificationResult = new ServiceWaitResult(false, SetupServiceStatus.Missing, TimeSpan.FromMilliseconds(10))
+        });
+
+        var result = await setup.RunAsync(new SetupOptions("LOCAL-PAIR-CODE"));
+
+        Assert.False(result.Success);
+        Assert.Contains("did not reach Running", result.Message);
+        Assert.Contains("Last observed status: Missing", result.Message);
     }
 
     [Fact]

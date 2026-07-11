@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Security.Principal;
+using System.ServiceProcess;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -161,14 +162,56 @@ public sealed class ProvisioningSetupProvisioner : ISetupProvisioner
     }
 }
 
+public interface IWindowsServiceStatusReader
+{
+    Task<SetupServiceStatus> GetStatusAsync(string serviceName, CancellationToken cancellationToken);
+}
+
+public sealed class WindowsServiceStatusReader : IWindowsServiceStatusReader
+{
+    public Task<SetupServiceStatus> GetStatusAsync(string serviceName, CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return Task.FromResult(SetupServiceStatus.Unknown);
+        }
+
+        return Task.FromResult(GetWindowsStatus(serviceName));
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static SetupServiceStatus GetWindowsStatus(string serviceName)
+    {
+        try
+        {
+            using var controller = new ServiceController(serviceName);
+            return controller.Status switch
+            {
+                ServiceControllerStatus.Stopped => SetupServiceStatus.Stopped,
+                ServiceControllerStatus.StartPending => SetupServiceStatus.StartPending,
+                ServiceControllerStatus.StopPending => SetupServiceStatus.StopPending,
+                ServiceControllerStatus.Running => SetupServiceStatus.Running,
+                ServiceControllerStatus.ContinuePending => SetupServiceStatus.ContinuePending,
+                ServiceControllerStatus.PausePending => SetupServiceStatus.PausePending,
+                ServiceControllerStatus.Paused => SetupServiceStatus.Paused,
+                _ => SetupServiceStatus.Unknown
+            };
+        }
+        catch (InvalidOperationException)
+        {
+            return SetupServiceStatus.Missing;
+        }
+    }
+}
+
 public sealed class AgentServiceSetupManager : ISetupServiceManager
 {
     private readonly WindowsServiceManager _serviceManager;
-    private readonly IProcessRunner _processRunner;
+    private readonly IWindowsServiceStatusReader _statusReader;
 
-    public AgentServiceSetupManager(IProcessRunner processRunner)
+    public AgentServiceSetupManager(IProcessRunner processRunner, IWindowsServiceStatusReader? statusReader = null)
     {
-        _processRunner = processRunner;
+        _statusReader = statusReader ?? new WindowsServiceStatusReader();
         _serviceManager = new WindowsServiceManager(processRunner);
     }
 
@@ -190,16 +233,35 @@ public sealed class AgentServiceSetupManager : ISetupServiceManager
         }
     }
 
-    public async Task<bool> ExistsAsync(CancellationToken cancellationToken)
+    public async Task<ServiceWaitResult> WaitForRunningAsync(TimeSpan timeout, TimeSpan retryInterval, CancellationToken cancellationToken)
     {
-        var result = await _processRunner.RunAsync("sc.exe", "query SimBootstrapAgent", cancellationToken);
-        return result.ExitCode == 0;
-    }
+        var stopwatch = Stopwatch.StartNew();
+        var lastStatus = SetupServiceStatus.Unknown;
 
-    public async Task<bool> IsRunningAsync(CancellationToken cancellationToken)
-    {
-        var result = await _processRunner.RunAsync("sc.exe", "query SimBootstrapAgent", cancellationToken);
-        return result.StdOut.Contains("RUNNING", StringComparison.OrdinalIgnoreCase);
+        while (stopwatch.Elapsed <= timeout)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            lastStatus = await _statusReader.GetStatusAsync(AgentPaths.ServiceName, cancellationToken);
+            if (lastStatus == SetupServiceStatus.Running)
+            {
+                return new ServiceWaitResult(true, lastStatus, stopwatch.Elapsed);
+            }
+
+            if (lastStatus == SetupServiceStatus.Missing)
+            {
+                return new ServiceWaitResult(false, lastStatus, stopwatch.Elapsed);
+            }
+
+            var remaining = timeout - stopwatch.Elapsed;
+            if (remaining <= TimeSpan.Zero)
+            {
+                break;
+            }
+
+            await Task.Delay(remaining < retryInterval ? remaining : retryInterval, cancellationToken);
+        }
+
+        return new ServiceWaitResult(false, lastStatus, stopwatch.Elapsed);
     }
 
     public async Task UninstallIfCreatedAsync(CancellationToken cancellationToken)
