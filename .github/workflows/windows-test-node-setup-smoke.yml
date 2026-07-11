@@ -38,7 +38,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run Setup smoke validation
-        shell: pwsh
+        shell: powershell
         env:
           SIMCRM_STAGING_SUPABASE_URL: ${{ secrets.SIMCRM_STAGING_SUPABASE_URL }}
           SIMCRM_STAGING_SUPABASE_ANON_KEY: ${{ secrets.SIMCRM_STAGING_SUPABASE_ANON_KEY }}
