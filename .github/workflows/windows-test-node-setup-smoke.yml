@@ -37,14 +37,15 @@ jobs:
       - name: Checkout SimBootstrap
         uses: actions/checkout@v4
 
+      - name: Create diagnostics directory
+        shell: cmd
+        run: mkdir "C:\SimPlatformTestNode\runs\${{ github.run_id }}-${{ github.run_attempt }}\artifacts"
+
       - name: Run Setup smoke validation
-        shell: powershell
+        shell: cmd
         run: >
-          ./scripts/windows-test-node/Invoke-SetupSmoke.ps1
-          -ReleaseTag '${{ inputs.release_tag }}'
-          -SetupAssetName '${{ inputs.setup_asset_name }}'
-          -TestMode '${{ inputs.test_mode }}'
-          -RunId '${{ github.run_id }}-${{ github.run_attempt }}'
+          powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%GITHUB_WORKSPACE%\scripts\windows-test-node\Invoke-SetupSmoke.ps1" -ReleaseTag "${{ inputs.release_tag }}" -SetupAssetName "${{ inputs.setup_asset_name }}" -TestMode "${{ inputs.test_mode }}" -RunId "${{ github.run_id }}-${{ github.run_attempt }}"
+
 
       - name: Upload diagnostics
         if: always()
