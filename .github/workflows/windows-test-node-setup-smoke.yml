@@ -38,7 +38,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run Setup smoke validation
-        shell: powershell
+        shell: cmd
         env:
           SIMCRM_STAGING_SUPABASE_URL: ${{ secrets.SIMCRM_STAGING_SUPABASE_URL }}
           SIMCRM_STAGING_SUPABASE_ANON_KEY: ${{ secrets.SIMCRM_STAGING_SUPABASE_ANON_KEY }}
@@ -46,7 +46,7 @@ jobs:
           SIMCRM_STAGING_PAIRING_LOCATION_ID: ${{ secrets.SIMCRM_STAGING_PAIRING_LOCATION_ID }}
           SIMBOOTSTRAP_STAGING_CONTROL_SERVER_URL: ${{ secrets.SIMBOOTSTRAP_STAGING_CONTROL_SERVER_URL }}
         run: >
-          ./scripts/windows-test-node/Invoke-SetupSmoke.ps1
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\windows-test-node\Invoke-SetupSmoke.ps1
           -ReleaseTag '${{ inputs.release_tag }}'
           -SetupAssetName '${{ inputs.setup_asset_name }}'
           -TestMode '${{ inputs.test_mode }}'
