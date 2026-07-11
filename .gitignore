@@ -3,6 +3,17 @@ bin/
 obj/
 [Bb]in/
 [Oo]bj/
+artifacts/
+.dotnet/
+publish/
+[Pp]ublish/
+TestResults/
+coverage/
+
+# Target build extensions
+*.zip
+*.exe
+*.dll
 
 # IDE files
 .vs/
@@ -21,3 +32,4 @@ Thumbs.db
 logs/
 config/*.local.json
 config/packages.json
+
