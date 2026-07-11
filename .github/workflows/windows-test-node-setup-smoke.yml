@@ -1,0 +1,56 @@
+name: Windows Test Node Setup Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "SimBootstrap release tag to test"
+        required: true
+        type: string
+      setup_asset_name:
+        description: "Setup executable asset name"
+        required: true
+        default: "SimBootstrap.Setup.exe"
+        type: string
+      test_mode:
+        description: "Real-machine smoke test mode"
+        required: true
+        default: "setup-smoke"
+        type: choice
+        options:
+          - setup-smoke
+
+permissions:
+  contents: read
+
+jobs:
+  setup-smoke:
+    name: Setup smoke on Windows Test Node
+    runs-on:
+      - self-hosted
+      - Windows
+      - X64
+      - simplatform-windows-test
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout SimBootstrap
+        uses: actions/checkout@v4
+
+      - name: Run Setup smoke validation
+        shell: pwsh
+        run: >
+          ./scripts/windows-test-node/Invoke-SetupSmoke.ps1
+          -ReleaseTag '${{ inputs.release_tag }}'
+          -SetupAssetName '${{ inputs.setup_asset_name }}'
+          -TestMode '${{ inputs.test_mode }}'
+          -RunId '${{ github.run_id }}-${{ github.run_attempt }}'
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-test-node-setup-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          path: C:\SimPlatformTestNode\runs\${{ github.run_id }}-${{ github.run_attempt }}\artifacts
+          if-no-files-found: warn
+          retention-days: 14
