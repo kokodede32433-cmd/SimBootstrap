@@ -363,6 +363,42 @@ if ($validation.Service.PathName) {
     $validation.Service.CanonicalExecutable = ($validation.Service.PathName -like "*SimAgent.Service.exe*" -and $validation.Service.PathName -like "*--SimAgent:AgentSettingsPath*")
 }
 
+$commandSuccess = $false
+if ($validation.Installation.Success -and $validation.Service.Status -eq "Running" -and (Test-Path $agentSettingsPath)) {
+    try {
+        $settings = Get-Content -Raw -Path $agentSettingsPath | ConvertFrom-Json
+        $agentId = $settings.AgentId
+        $supabaseUrl = $env:SIMCRM_STAGING_SUPABASE_URL.TrimEnd("/")
+        
+        Write-Host "Creating test PING command for Agent: $agentId"
+        $body = @{ p_agent_id = $agentId; p_command_type = "PING" } | ConvertTo-Json -Compress
+        $headers = @{
+            apikey = $env:SIMCRM_STAGING_SUPABASE_ANON_KEY
+            "Content-Type" = "application/json"
+        }
+        $rpcUrl = "$supabaseUrl/rest/v1/rpc/create_test_agent_command_v1"
+        $commandId = Invoke-RestMethod -Method Post -Uri $rpcUrl -Headers $headers -Body $body
+        
+        Write-Host "Polled command ID: $commandId. Waiting for execution..."
+        $deadline = (Get-Date).AddSeconds(30)
+        while ((Get-Date) -lt $deadline) {
+            $cmdResult = Invoke-RestMethod -Method Get -Uri "$supabaseUrl/rest/v1/agent_commands?id=eq.$commandId" -Headers $headers
+            if ($cmdResult -and $cmdResult.status -eq "succeeded") {
+                $commandSuccess = $true
+                Write-Host "PING command succeeded cleanly!"
+                break
+            }
+            if ($cmdResult -and $cmdResult.status -eq "failed") {
+                Write-Host "PING command failed status returned."
+                break
+            }
+            Start-Sleep -Seconds 2
+        }
+    } catch {
+        Write-Host "Warning: Failed during commands E2E test execution: $_"
+    }
+}
+
 $failures = New-Object System.Collections.Generic.List[string]
 if ($process.ExitCode -ne 0) { $failures.Add("Setup exited with code $($process.ExitCode).") }
 if (-not $validation.Installation.Success) { $failures.Add("installation-result.json Success was not true.") }
@@ -379,6 +415,7 @@ if (-not $validation.Agent.ConfigLoaded) { $failures.Add("Recent logs do not con
 if ($agentProcess.LegacyProcesses.Count -gt 0) { $failures.Add("Legacy SimBootstrap.Agent process is running.") }
 if ($fatalLogHits.Count -gt 0) { $failures.Add("Recent Agent logs contain fatal startup errors.") }
 if ($secretLogHits.Count -gt 0) { $failures.Add("Logs or artifacts contain secret-shaped fields.") }
+if (-not $commandSuccess) { $failures.Add("PING command did not execute successfully E2E on staging.") }
 
 if ($failures.Count -eq 0) {
     $validation.Agent.Result = "Passed"
