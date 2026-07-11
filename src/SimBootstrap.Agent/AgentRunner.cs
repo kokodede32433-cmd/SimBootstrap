@@ -9,6 +9,7 @@ public sealed class AgentRunner
 {
     private readonly IMockControlServerClient _controlServer;
     private readonly IAgentLogWriter _logWriter;
+    private string? _registrationId;
 
     public AgentRunner(IMockControlServerClient controlServer, IAgentLogWriter logWriter)
     {
@@ -28,27 +29,34 @@ public sealed class AgentRunner
         }
 
         await RecordAsync($"Agent '{settings.AgentId}' starting run-once.");
-        var registrationId = await _controlServer.RegisterAsync(settings, cancellationToken);
-        await RecordAsync($"Registered with mock control server using PairCode '{settings.PairCode}'.");
+        if (string.IsNullOrWhiteSpace(_registrationId))
+        {
+            _registrationId = await _controlServer.RegisterAsync(settings, cancellationToken);
+            await RecordAsync($"Registered with mock control server using PairCode '{settings.PairCode}'.");
+        }
+        else
+        {
+            await RecordAsync("Using existing mock control server registration.");
+        }
 
-        await _controlServer.SendHeartbeatAsync(registrationId, cancellationToken);
+        await _controlServer.SendHeartbeatAsync(_registrationId, cancellationToken);
         await RecordAsync("Heartbeat sent.");
 
-        var task = await _controlServer.PollTaskAsync(registrationId, cancellationToken);
+        var task = await _controlServer.PollTaskAsync(_registrationId, cancellationToken);
         if (task is null)
         {
             await RecordAsync("No mock task available.");
-            return new AgentRunResult(true, settings.AgentId, registrationId, string.Empty, events);
+            return new AgentRunResult(true, settings.AgentId, _registrationId, string.Empty, events);
         }
 
         await RecordAsync($"Polled mock task '{task.TaskId}'.");
         var taskResult = ExecuteMockTask(task);
         await RecordAsync($"Executed mock task '{task.TaskId}': {taskResult.Message}");
 
-        await _controlServer.ReportResultAsync(registrationId, taskResult, cancellationToken);
+        await _controlServer.ReportResultAsync(_registrationId, taskResult, cancellationToken);
         await RecordAsync($"Reported result for mock task '{task.TaskId}'.");
 
-        return new AgentRunResult(taskResult.Success, settings.AgentId, registrationId, task.TaskId, events);
+        return new AgentRunResult(taskResult.Success, settings.AgentId, _registrationId, task.TaskId, events);
     }
 
     private static MockTaskResult ExecuteMockTask(MockAgentTask task)
