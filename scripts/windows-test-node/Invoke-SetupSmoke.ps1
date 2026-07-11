@@ -381,14 +381,15 @@ if ($validation.Installation.Success -and $validation.Service.Status -eq "Runnin
         
         Write-Host "Polled command ID: $commandId. Waiting for execution..."
         $deadline = (Get-Date).AddSeconds(30)
+        $statusRpcUrl = "$supabaseUrl/rest/v1/rpc/get_test_command_status_v1"
         while ((Get-Date) -lt $deadline) {
-            $cmdResult = Invoke-RestMethod -Method Get -Uri "$supabaseUrl/rest/v1/agent_commands?id=eq.$commandId" -Headers $headers
-            if ($cmdResult -and $cmdResult.status -eq "succeeded") {
+            $status = Invoke-RestMethod -Method Post -Uri $statusRpcUrl -Headers $headers -Body (@{ p_command_id = $commandId } | ConvertTo-Json -Compress)
+            if ($status -eq "succeeded") {
                 $commandSuccess = $true
                 Write-Host "PING command succeeded cleanly!"
                 break
             }
-            if ($cmdResult -and $cmdResult.status -eq "failed") {
+            if ($status -eq "failed") {
                 Write-Host "PING command failed status returned."
                 break
             }
