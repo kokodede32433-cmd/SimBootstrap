@@ -42,6 +42,8 @@ dotnet publish $setupProject `
     -c $Configuration `
     -r $RuntimeIdentifier `
     --self-contained false `
+    -p:PublishSingleFile=true `
+    -p:ValidateExecutableReferencesMatchSelfContained=false `
     -o $OutputDirectory
 
 $setupExe = Join-Path $OutputDirectory "SimBootstrap.Setup.exe"
