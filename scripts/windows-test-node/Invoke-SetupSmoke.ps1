@@ -76,7 +76,20 @@ function Assert-RequiredSecret {
         [string] $Value
     )
     if ([string]::IsNullOrWhiteSpace($Value)) {
-        throw "Missing required secret/environment value: $Name"
+        $message = "Missing required secret/environment value: $Name"
+        if (-not [string]::IsNullOrWhiteSpace($artifactDirectory)) {
+            New-Item -ItemType Directory -Force -Path $artifactDirectory | Out-Null
+            [ordered]@{
+                Success = $false
+                Stage = "Preflight"
+                Error = $message
+                MissingSecret = $Name
+                ReleaseTag = $ReleaseTag
+                SetupAssetName = $SetupAssetName
+                TestMode = $TestMode
+            } | ConvertTo-Json -Depth 6 | Set-Content -Path $validationReportPath -Encoding UTF8
+        }
+        throw $message
     }
 }
 
