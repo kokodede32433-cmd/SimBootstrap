@@ -18,7 +18,7 @@ public sealed class AgentLogWriter : IAgentLogWriter
 
     public AgentLogWriter(string? logRoot = null)
     {
-        var root = logRoot ?? GetDefaultLogRoot();
+        var root = logRoot ?? AgentPaths.GetLogRoot();
         Directory.CreateDirectory(root);
         _logFilePath = Path.Combine(root, "simbootstrap-agent.log");
     }
@@ -29,18 +29,6 @@ public sealed class AgentLogWriter : IAgentLogWriter
         await File.AppendAllTextAsync(_logFilePath, line, cancellationToken);
     }
 
-    private static string GetDefaultLogRoot()
-    {
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            return Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-                "SimBootstrap",
-                "logs");
-        }
-
-        return Path.Combine(AppContext.BaseDirectory, "logs");
-    }
 }
 
 public sealed class InMemoryAgentLogWriter : IAgentLogWriter

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Options;
 using SimBootstrap.Agent;
 using Xunit;
 
@@ -45,6 +46,29 @@ public class AgentTests
             Calls.Add($"report:{registrationId}:{result.TaskId}:{result.Success}");
             LastResult = result;
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class RecordingProcessRunner : IProcessRunner
+    {
+        private readonly Queue<CommandExecutionResult> _results;
+
+        public List<string> Commands { get; } = new();
+
+        public RecordingProcessRunner(params CommandExecutionResult[] results)
+        {
+            _results = new Queue<CommandExecutionResult>(results);
+        }
+
+        public Task<CommandExecutionResult> RunAsync(string fileName, string arguments, CancellationToken cancellationToken = default)
+        {
+            Commands.Add($"{fileName} {arguments}");
+            if (_results.Count > 0)
+            {
+                return Task.FromResult(_results.Dequeue());
+            }
+
+            return Task.FromResult(new CommandExecutionResult(0, string.Empty, string.Empty));
         }
     }
 
@@ -146,5 +170,117 @@ public class AgentTests
         {
             File.Delete(path);
         }
+    }
+
+    [Theory]
+    [InlineData("install-service", AgentServiceCommandKind.Install)]
+    [InlineData("uninstall-service", AgentServiceCommandKind.Uninstall)]
+    [InlineData("start-service", AgentServiceCommandKind.Start)]
+    [InlineData("stop-service", AgentServiceCommandKind.Stop)]
+    [InlineData("service-status", AgentServiceCommandKind.Status)]
+    public void AgentProgram_ServiceCommandParsing_MapsKnownCommands(string command, AgentServiceCommandKind expected)
+    {
+        var mapped = SimBootstrap.Agent.Program.TryMapServiceCommand(command, out var actual);
+
+        Assert.True(mapped);
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public void WindowsServiceCommandBuilder_InstallPlan_ConfiguresServiceRecovery()
+    {
+        var plan = WindowsServiceCommandBuilder.BuildInstallPlan(
+            @"C:\Program Files\SimBootstrap\SimBootstrap.Agent.exe",
+            @"C:\ProgramData\SimBootstrap\config\agentsettings.json");
+
+        Assert.Contains(plan.Commands, command => command.Contains("sc.exe create SimBootstrapAgent", StringComparison.Ordinal));
+        Assert.Contains(plan.Commands, command => command.Contains("start= delayed-auto", StringComparison.Ordinal));
+        Assert.Contains(plan.Commands, command => command.Contains("DisplayName= \"SimBootstrap Agent\"", StringComparison.Ordinal));
+        Assert.Contains(plan.Commands, command => command.Contains("failure SimBootstrapAgent reset= 86400 actions= restart/60000/restart/60000/restart/60000", StringComparison.Ordinal));
+        Assert.Contains(plan.Commands, command => command.Contains("failureflag SimBootstrapAgent 1", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task WindowsServiceManager_UninstallMissingService_IsIdempotent()
+    {
+        var processRunner = new RecordingProcessRunner(new CommandExecutionResult(1060, string.Empty, "missing service"));
+        var manager = new WindowsServiceManager(processRunner, isWindows: () => true);
+
+        var result = await manager.ExecuteAsync(
+            AgentServiceCommandKind.Uninstall,
+            @"C:\Program Files\SimBootstrap\SimBootstrap.Agent.exe",
+            @"C:\ProgramData\SimBootstrap\config\agentsettings.json");
+
+        Assert.True(result.Success);
+        Assert.Equal("Service is not installed.", result.Message);
+        Assert.Single(processRunner.Commands);
+        Assert.Equal("sc.exe query SimBootstrapAgent", processRunner.Commands[0]);
+    }
+
+    [Fact]
+    public async Task WindowsServiceManager_InstallExistingService_IsIdempotent()
+    {
+        var processRunner = new RecordingProcessRunner(new CommandExecutionResult(0, "service exists", string.Empty));
+        var manager = new WindowsServiceManager(processRunner, isWindows: () => true);
+
+        var result = await manager.ExecuteAsync(
+            AgentServiceCommandKind.Install,
+            @"C:\Program Files\SimBootstrap\SimBootstrap.Agent.exe",
+            @"C:\ProgramData\SimBootstrap\config\agentsettings.json");
+
+        Assert.True(result.Success);
+        Assert.Equal("Service already installed.", result.Message);
+        Assert.Single(processRunner.Commands);
+        Assert.Equal("sc.exe query SimBootstrapAgent", processRunner.Commands[0]);
+    }
+
+
+    [Fact]
+    public async Task WindowsServiceManager_NonWindows_ReturnsGuardFailure()
+    {
+        var manager = new WindowsServiceManager(new RecordingProcessRunner(), isWindows: () => false);
+
+        var result = await manager.ExecuteAsync(
+            AgentServiceCommandKind.Start,
+            "/tmp/SimBootstrap.Agent",
+            "/tmp/agentsettings.json");
+
+        Assert.False(result.Success);
+        Assert.Equal("Windows service commands can only run on Windows.", result.Message);
+        Assert.Empty(result.Commands);
+    }
+
+    [Fact]
+    public void AgentCommandLine_DefaultWindowsConfigPath_UsesProgramDataWhenWindows()
+    {
+        var explicitPath = @"C:\ProgramData\SimBootstrap\config\agentsettings.json";
+
+        var options = AgentCommandLine.Parse(new[] { "service-status", "--config", explicitPath }, @"C:\agent\SimBootstrap.Agent.exe");
+
+        Assert.Equal("service-status", options.Command);
+        Assert.Equal(explicitPath, options.ConfigPath);
+        Assert.EndsWith("SimBootstrap.Agent.exe", options.ExecutablePath, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task AgentWorker_StopAsync_CancelsGracefully()
+    {
+        var settings = new AgentSettings
+        {
+            AgentId = "agent-service",
+            PairCode = "PAIR-SERVICE",
+            HeartbeatIntervalSeconds = 60
+        };
+        var server = new RecordingControlServerClient(task: null);
+        var logs = new InMemoryAgentLogWriter();
+        var runner = new AgentRunner(server, logs);
+        var worker = new AgentWorker(runner, Options.Create(new AgentServiceOptions { Settings = settings }), logs);
+
+        await worker.StartAsync(CancellationToken.None);
+        await Task.Delay(100);
+        await worker.StopAsync(CancellationToken.None);
+
+        Assert.Contains(logs.Messages, message => message == "SimBootstrap Agent service loop started.");
+        Assert.Contains(logs.Messages, message => message == "SimBootstrap Agent service loop stopped.");
     }
 }
