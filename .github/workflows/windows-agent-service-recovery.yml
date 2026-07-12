@@ -2,6 +2,12 @@ name: Windows Agent Service Recovery
 
 on:
   workflow_dispatch:
+    inputs:
+      backup_index:
+        description: "0 = newest backup, 1 = previous backup, etc."
+        required: true
+        default: "1"
+        type: string
 
 permissions:
   contents: read
@@ -22,6 +28,9 @@ jobs:
 
       - name: Restore latest Agent backup and start service
         shell: cmd
+        env:
+          BACKUP_INDEX: ${{ inputs.backup_index }}
         run: >
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File
           scripts\windows-test-node\Invoke-AgentServiceRecovery.ps1
+          -BackupIndex "${{ inputs.backup_index }}"
