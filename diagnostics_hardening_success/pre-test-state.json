@@ -1,0 +1,33 @@
+﻿{
+    "Timestamp":  "2026-07-11T23:37:14.6803111+03:00",
+    "Service":  {
+                    "Exists":  true,
+                    "Status":  "Running",
+                    "ServiceName":  "SimAgentService",
+                    "ProcessId":  24832,
+                    "StartMode":  "Auto",
+                    "State":  "Running",
+                    "PathName":  "\"C:\\Program Files\\SimBootstrap\\Agent\\SimAgent.Service.exe\" --SimAgent:AgentSettingsPath \"C:\\ProgramData\\SimBootstrap\\config\\agentsettings.json\""
+                },
+    "LegacyService":  {
+                          "Exists":  false,
+                          "Status":  "Missing",
+                          "ServiceName":  "SimBootstrapAgent"
+                      },
+    "ProgramFilesExists":  true,
+    "ProgramDataExists":  true,
+    "AgentProcesses":  {
+                           "ServiceProcessId":  24832,
+                           "Processes":  [
+                                             {
+                                                 "Id":  24832,
+                                                 "ProcessName":  "SimAgent.Service",
+                                                 "Path":  "C:\\Program Files\\SimBootstrap\\Agent\\SimAgent.Service.exe",
+                                                 "StartTime":  "2026-07-11T23:34:14.1616444+03:00"
+                                             }
+                                         ],
+                           "LegacyProcesses":  [
+
+                                               ]
+                       }
+}

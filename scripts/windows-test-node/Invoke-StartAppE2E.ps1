@@ -398,6 +398,167 @@ try {
     }
     Write-Host "Agent ID and Agent count confirmed unchanged."
 
+    # 11a. Run STOP_APPROVED_APP
+    Write-Host "Creating STOP_APPROVED_APP command..."
+    $stopCommandBody = @{
+        p_agent_id = $agentId
+        p_command_type = "STOP_APPROVED_APP"
+        p_payload = @{ applicationId = $selectedApp }
+    } | ConvertTo-Json -Compress
+    $createResponseStop = Invoke-RestMethod -Method Post -Uri "$supabaseUrl/rest/v1/rpc/create_agent_command_v1" -Headers $rpcHeaders -Body $stopCommandBody
+    $commandIdStop = $createResponseStop.command_id
+    if ([string]::IsNullOrWhiteSpace($commandIdStop)) {
+        throw "Failed to create STOP_APPROVED_APP command."
+    }
+    Write-Host "Command created with ID: $commandIdStop"
+
+    # Poll for completion of the stop command
+    $stopResult = $null
+    $deadline = (Get-Date).AddSeconds(180)
+    Write-Host "Waiting for stop execution..."
+    while ((Get-Date) -lt $deadline) {
+        try {
+            $statusBodyStop = @{ p_command_id = $commandIdStop } | ConvertTo-Json -Compress
+            $statusResponseStop = Invoke-RestMethod -Method Post -Uri "$supabaseUrl/rest/v1/rpc/get_agent_command_status_v1" -Headers $rpcHeaders -Body $statusBodyStop
+            $statusStop = $statusResponseStop.status
+            if ($statusStop -in @("succeeded", "failed", "expired", "cancelled")) {
+                $stopResult = $statusResponseStop
+                break
+            }
+        } catch {
+            Write-Host "Warning: Transient network error while polling status: $_"
+        }
+        Start-Sleep -Seconds 5
+    }
+
+    if ($null -eq $stopResult) {
+        throw "Stop command timed out."
+    }
+    Write-Host "Stop status: $($stopResult.status)"
+    Write-Host "Stop result: $(ConvertTo-Json $stopResult.result)"
+    if ($stopResult.status -ne "succeeded" -or $stopResult.result.status -notin @("stopped", "not_running")) {
+        throw "Stop command failed or did not report stopped/not_running. Status: $($stopResult.status), Result status: $($stopResult.result.status)"
+    }
+
+    # Resolve attempt_count for stop command
+    $attemptCountStop1 = 1
+    try {
+        $queryUrlStop1 = "$supabaseUrl/rest/v1/agent_commands?id=eq.$commandIdStop&select=attempt_count"
+        $queryResultStop1 = Invoke-RestMethod -Method Get -Uri $queryUrlStop1 -Headers $rpcHeaders
+        if ($null -ne $queryResultStop1 -and $queryResultStop1.Count -gt 0) {
+            $attemptCountStop1 = [int]$queryResultStop1[0].attempt_count
+        }
+    } catch {
+        Write-Host "Warning: Direct query for attempt_count stop 1 failed: $_"
+    }
+    Write-Host "Stop attempt_count: $attemptCountStop1"
+    if ($attemptCountStop1 -ne 1) {
+        throw "Stop attemptCount is $attemptCountStop1, expected 1."
+    }
+
+    # 11b. Run STOP_APPROVED_APP again to verify not_running
+    Write-Host "Creating second STOP_APPROVED_APP command..."
+    $createResponseStop2 = Invoke-RestMethod -Method Post -Uri "$supabaseUrl/rest/v1/rpc/create_agent_command_v1" -Headers $rpcHeaders -Body $stopCommandBody
+    $commandIdStop2 = $createResponseStop2.command_id
+    if ([string]::IsNullOrWhiteSpace($commandIdStop2)) {
+        throw "Failed to create second STOP_APPROVED_APP command."
+    }
+    Write-Host "Second stop command created with ID: $commandIdStop2"
+
+    $secondStopResult = $null
+    $deadline = (Get-Date).AddSeconds(180)
+    Write-Host "Waiting for second stop execution..."
+    while ((Get-Date) -lt $deadline) {
+        try {
+            $statusBodyStop2 = @{ p_command_id = $commandIdStop2 } | ConvertTo-Json -Compress
+            $statusResponseStop2 = Invoke-RestMethod -Method Post -Uri "$supabaseUrl/rest/v1/rpc/get_agent_command_status_v1" -Headers $rpcHeaders -Body $statusBodyStop2
+            $statusStop2 = $statusResponseStop2.status
+            if ($statusStop2 -in @("succeeded", "failed", "expired", "cancelled")) {
+                $secondStopResult = $statusResponseStop2
+                break
+            }
+        } catch {
+            Write-Host "Warning: Transient network error while polling status: $_"
+        }
+        Start-Sleep -Seconds 5
+    }
+
+    if ($null -eq $secondStopResult) {
+        throw "Second stop command timed out."
+    }
+    Write-Host "Second stop status: $($secondStopResult.status)"
+    Write-Host "Second stop result: $(ConvertTo-Json $secondStopResult.result)"
+    if ($secondStopResult.status -ne "succeeded" -or $secondStopResult.result.status -ne "not_running") {
+        throw "Second stop did not report not_running. Status: $($secondStopResult.status), Result status: $($secondStopResult.result.status)"
+    }
+
+    # Resolve attempt_count for second stop command
+    $attemptCountStop2 = 1
+    try {
+        $queryUrlStop2 = "$supabaseUrl/rest/v1/agent_commands?id=eq.$commandIdStop2&select=attempt_count"
+        $queryResultStop2 = Invoke-RestMethod -Method Get -Uri $queryUrlStop2 -Headers $rpcHeaders
+        if ($null -ne $queryResultStop2 -and $queryResultStop2.Count -gt 0) {
+            $attemptCountStop2 = [int]$queryResultStop2[0].attempt_count
+        }
+    } catch {
+        Write-Host "Warning: Direct query for attempt_count stop 2 failed: $_"
+    }
+    Write-Host "Second stop attempt_count: $attemptCountStop2"
+    if ($attemptCountStop2 -ne 1) {
+        throw "Second stop attemptCount is $attemptCountStop2, expected 1."
+    }
+
+    # 11c. Run GET_SIM_STATUS to verify the application is NOT running
+    Write-Host "Creating GET_SIM_STATUS command to check stopped state..."
+    $createResponseStatusAfterStop = Invoke-RestMethod -Method Post -Uri "$supabaseUrl/rest/v1/rpc/create_agent_command_v1" -Headers $rpcHeaders -Body $statusCommandBody
+    $commandIdStatusAfterStop = $createResponseStatusAfterStop.command_id
+    if ([string]::IsNullOrWhiteSpace($commandIdStatusAfterStop)) {
+        throw "Failed to create GET_SIM_STATUS command after stop."
+    }
+    Write-Host "GET_SIM_STATUS command after stop created with ID: $commandIdStatusAfterStop"
+
+    $simStatusAfterStopResult = $null
+    $deadline = (Get-Date).AddSeconds(180)
+    Write-Host "Waiting for GET_SIM_STATUS after stop execution..."
+    while ((Get-Date) -lt $deadline) {
+        try {
+            $statusBodyStatusAfterStop = @{ p_command_id = $commandIdStatusAfterStop } | ConvertTo-Json -Compress
+            $statusResponseStatusAfterStop = Invoke-RestMethod -Method Post -Uri "$supabaseUrl/rest/v1/rpc/get_agent_command_status_v1" -Headers $rpcHeaders -Body $statusBodyStatusAfterStop
+            $statusStatusAfterStop = $statusResponseStatusAfterStop.status
+            if ($statusStatusAfterStop -in @("succeeded", "failed", "expired", "cancelled")) {
+                $simStatusAfterStopResult = $statusResponseStatusAfterStop
+                break
+            }
+        } catch {
+            Write-Host "Warning: Transient network error while polling status: $_"
+        }
+        Start-Sleep -Seconds 5
+    }
+
+    if ($null -eq $simStatusAfterStopResult) {
+        throw "GET_SIM_STATUS command after stop timed out."
+    }
+    Write-Host "GET_SIM_STATUS after stop status: $($simStatusAfterStopResult.status)"
+    Write-Host "GET_SIM_STATUS after stop applications: $(ConvertTo-Json $simStatusAfterStopResult.result.applications)"
+
+    $targetAppAfterStopResult = $simStatusAfterStopResult.result.applications | Where-Object { $_.id -eq $selectedApp }
+    if ($null -ne $targetAppAfterStopResult -and $targetAppAfterStopResult.running) {
+        throw "GET_SIM_STATUS reported $selectedApp is still running after stop."
+    }
+    Write-Host "Confirmed: $selectedApp is not running."
+
+    # 11d. Confirm Agent ID and count unchanged after stop
+    Write-Host "Verifying agent identity and count after E2E stop execution..."
+    $preflightAfterStop = Invoke-RestMethod -Method Post -Uri "$supabaseUrl/functions/v1/create-e2e-agent-command" -Headers $e2eHeaders -Body (@{ action = "preflight" } | ConvertTo-Json -Compress)
+    
+    if (-not $preflightAfterStop.agent.targetAgentConfigured) {
+        throw "Target agent identity changed or missing after stop E2E."
+    }
+    if ([int]$preflightAfterStop.agentCount -ne $agentCountBefore) {
+        throw "Agent count changed from $agentCountBefore to $($preflightAfterStop.agentCount)."
+    }
+    Write-Host "Agent ID and Agent count confirmed unchanged."
+
     # 12. Write final redacted diagnostics report
     $report = [ordered]@{
         Success = $true
@@ -417,8 +578,22 @@ try {
             Status = $simStatusResult.status
             TargetAppRunning = $targetAppResult.running
         }
-        AgentIdPreserved = ($preflightAfter.agent.targetAgentConfigured -eq $true)
-        AgentCountUnchanged = ($preflightAfter.agentCount -eq $agentCountBefore)
+        StopResult = @{
+            Status = $stopResult.status
+            ResultStatus = $stopResult.result.status
+            AttemptCount = $attemptCountStop1
+        }
+        AlreadyStoppedResult = @{
+            Status = $secondStopResult.status
+            ResultStatus = $secondStopResult.result.status
+            AttemptCount = $attemptCountStop2
+        }
+        GetSimStatusAfterStopResult = @{
+            Status = $simStatusAfterStopResult.status
+            TargetAppRunning = ($null -ne $targetAppAfterStopResult -and $targetAppAfterStopResult.running)
+        }
+        AgentIdPreserved = ($preflightAfterStop.agent.targetAgentConfigured -eq $true)
+        AgentCountUnchanged = ($preflightAfterStop.agentCount -eq $agentCountBefore)
     }
 
     Write-JsonFile $report $validationReportPath

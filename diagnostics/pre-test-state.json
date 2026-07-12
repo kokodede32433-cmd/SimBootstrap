@@ -1,0 +1,24 @@
+﻿{
+    "Timestamp":  "2026-07-11T22:40:24.8772491+03:00",
+    "Service":  {
+                    "Exists":  false,
+                    "Status":  "Missing",
+                    "ServiceName":  "SimAgentService"
+                },
+    "LegacyService":  {
+                          "Exists":  false,
+                          "Status":  "Missing",
+                          "ServiceName":  "SimBootstrapAgent"
+                      },
+    "ProgramFilesExists":  false,
+    "ProgramDataExists":  false,
+    "AgentProcesses":  {
+                           "ServiceProcessId":  null,
+                           "Processes":  [
+
+                                         ],
+                           "LegacyProcesses":  [
+
+                                               ]
+                       }
+}

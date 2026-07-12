@@ -1,0 +1,62 @@
+﻿{
+    "Success":  false,
+    "ReleaseTag":  "setup-simagent-e2e-20260711202025",
+    "SetupAssetName":  "SimBootstrap.Setup.exe",
+    "TestMode":  "real-pairing-e2e",
+    "SetupExitCode":  0,
+    "Installation":  {
+                         "ResultFileExists":  true,
+                         "Success":  true,
+                         "State":  "Completed",
+                         "Message":  "Installation completed successfully."
+                     },
+    "Service":  {
+                    "Exists":  true,
+                    "Status":  "Running",
+                    "ServiceName":  "SimAgentService",
+                    "ProcessId":  20304,
+                    "StartMode":  "Auto",
+                    "State":  "Running",
+                    "PathName":  "\"C:\\Program Files\\SimBootstrap\\Agent\\SimAgent.Service.exe\" --SimAgent:AgentSettingsPath \"C:\\ProgramData\\SimBootstrap\\config\\agentsettings.json\"",
+                    "CanonicalExecutable":  true
+                },
+    "LegacyService":  {
+                          "Exists":  false,
+                          "Status":  "Missing",
+                          "ServiceName":  "SimBootstrapAgent"
+                      },
+    "Files":  {
+                  "AgentExeExists":  true,
+                  "AgentSettingsExists":  true,
+                  "LogsDirectoryExists":  true,
+                  "ServiceLogsDirectoryExists":  false
+              },
+    "Agent":  {
+                  "Result":  "Failed",
+                  "Process":  {
+                                  "ServiceProcessId":  20304,
+                                  "Processes":  [
+                                                    {
+                                                        "Id":  20304,
+                                                        "ProcessName":  "SimAgent.Service",
+                                                        "Path":  "C:\\Program Files\\SimBootstrap\\Agent\\SimAgent.Service.exe",
+                                                        "StartTime":  "2026-07-11T23:22:57.1945812+03:00"
+                                                    }
+                                                ],
+                                  "LegacyProcesses":  [
+
+                                                      ]
+                              },
+                  "RecentLogCount":  1,
+                  "FatalStartupHits":  [
+
+                                       ],
+                  "ConfigLoaded":  false,
+                  "SecretPatternHits":  [
+
+                                        ]
+              },
+    "Failures":  [
+                     "Recent logs do not confirm SimAgent.Service startup after real config load."
+                 ]
+}

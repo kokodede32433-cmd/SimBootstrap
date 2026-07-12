@@ -1,0 +1,61 @@
+﻿{
+    "Success":  false,
+    "ReleaseTag":  "setup-simagent-e2e-20260711171231",
+    "SetupAssetName":  "SimBootstrap.Setup.exe",
+    "TestMode":  "real-pairing-e2e",
+    "SetupExitCode":  1,
+    "Installation":  {
+                         "ResultFileExists":  true,
+                         "Success":  false,
+                         "State":  "Failed",
+                         "Message":  "Pairing service returned an internal error."
+                     },
+    "Service":  {
+                    "Exists":  false,
+                    "Status":  "Missing",
+                    "ServiceName":  "SimAgentService",
+                    "CanonicalExecutable":  false
+                },
+    "LegacyService":  {
+                          "Exists":  false,
+                          "Status":  "Missing",
+                          "ServiceName":  "SimBootstrapAgent"
+                      },
+    "Files":  {
+                  "AgentExeExists":  false,
+                  "AgentSettingsExists":  false,
+                  "LogsDirectoryExists":  true,
+                  "ServiceLogsDirectoryExists":  false
+              },
+    "Agent":  {
+                  "Result":  "Failed",
+                  "Process":  {
+                                  "ServiceProcessId":  null,
+                                  "Processes":  [
+
+                                                ],
+                                  "LegacyProcesses":  [
+
+                                                      ]
+                              },
+                  "RecentLogCount":  1,
+                  "FatalStartupHits":  [
+
+                                       ],
+                  "ConfigLoaded":  false,
+                  "SecretPatternHits":  [
+
+                                        ]
+              },
+    "Failures":  [
+                     "Setup exited with code 1.",
+                     "installation-result.json Success was not true.",
+                     "SimAgentService service does not exist.",
+                     "SimAgentService service status is Missing, expected Running.",
+                     "SimAgentService is not targeting SimAgent.Service.exe with the canonical config path argument.",
+                     "C:\\Program Files\\SimBootstrap\\Agent\\SimAgent.Service.exe is missing.",
+                     "C:\\ProgramData\\SimBootstrap\\config\\agentsettings.json is missing.",
+                     "Service PID could not be resolved.",
+                     "Recent logs do not confirm SimAgent.Service startup after real config load."
+                 ]
+}
