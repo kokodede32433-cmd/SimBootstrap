@@ -18,12 +18,5 @@ jobs:
 
     steps:
       - name: Start existing service only
-        shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $svc = Get-Service -Name 'SimAgentService' -ErrorAction Stop;
-          if ($svc.Status -ne 'Running') {
-            Start-Service -Name 'SimAgentService';
-            (Get-Service -Name 'SimAgentService').WaitForStatus('Running', [TimeSpan]::FromSeconds(30));
-          }
-          Write-Host 'SimAgentService is Running.'
+        shell: cmd
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference = 'Stop'; $svc = Get-Service -Name 'SimAgentService' -ErrorAction Stop; if ($svc.Status -ne 'Running') { Start-Service -Name 'SimAgentService'; (Get-Service -Name 'SimAgentService').WaitForStatus('Running', [TimeSpan]::FromSeconds(30)); }; Write-Host 'SimAgentService is Running.'"
