@@ -50,23 +50,8 @@ jobs:
       - name: Verify publish output
         shell: cmd
         run: >
-          powershell.exe -NoProfile -ExecutionPolicy Bypass -Command
-          "$ErrorActionPreference = 'Stop';
-          $exe = 'artifacts\simagent-service-win-x64\SimAgent.Service.exe';
-          if (-not (Test-Path $exe)) { throw 'SimAgent.Service.exe missing from publish output.' };
-          $dll = 'artifacts\simagent-service-win-x64\SimAgent.Service.dll';
-          if (-not (Test-Path $dll)) { throw 'SimAgent.Service.dll missing from publish output.' };
-          $needle = [System.Text.Encoding]::UTF8.GetBytes('SimulatorStatusCommandHandler');
-          $bytes = [System.IO.File]::ReadAllBytes($dll);
-          $found = $false;
-          for ($i = 0; $i -le $bytes.Length - $needle.Length; $i++) {
-            $match = $true;
-            for ($j = 0; $j -lt $needle.Length; $j++) {
-              if ($bytes[$i + $j] -ne $needle[$j]) { $match = $false; break }
-            };
-            if ($match) { $found = $true; break }
-          };
-          if (-not $found) { throw 'Published payload does not contain GET_SIM_STATUS marker.' }"
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\windows-test-node\Test-AgentPayload.ps1
+          -PayloadDirectory "artifacts\simagent-service-win-x64"
 
       - name: In-place update SimAgentService
         shell: cmd
