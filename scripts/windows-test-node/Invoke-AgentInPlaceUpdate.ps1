@@ -242,6 +242,7 @@ function Restore-Backup {
         Stop-Service -Name $serviceName -Force -ErrorAction SilentlyContinue
         $service.WaitForStatus("Stopped", [TimeSpan]::FromSeconds(30))
     }
+    Stop-SessionHostProcesses
 
     if (Test-Path $agentDirectory) {
         Remove-Item -Path $agentDirectory -Recurse -Force
@@ -249,6 +250,20 @@ function Restore-Backup {
     Copy-Item -Path $BackupPath -Destination $agentDirectory -Recurse -Force
     Start-Service -Name $serviceName
     return $true
+}
+
+function Stop-SessionHostProcesses {
+    Get-Process -Name "SimAgent.SessionHost" -ErrorAction SilentlyContinue |
+        Stop-Process -Force -ErrorAction SilentlyContinue
+
+    $deadline = (Get-Date).AddSeconds(10)
+    while ((Get-Date) -lt $deadline) {
+        $remaining = @(Get-Process -Name "SimAgent.SessionHost" -ErrorAction SilentlyContinue)
+        if ($remaining.Count -eq 0) {
+            return
+        }
+        Start-Sleep -Milliseconds 250
+    }
 }
 
 New-Directory $artifactDirectory
@@ -335,7 +350,7 @@ try {
         Copy-Item -Path $sessionHostDirectory -Destination $sessionHostBackupPath -Recurse -Force
     }
 
-    Get-Process -Name "SimAgent.SessionHost" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    Stop-SessionHostProcesses
 
     if ($serviceBefore.Status -ne "Stopped") {
         Stop-Service -Name $serviceName -Force
