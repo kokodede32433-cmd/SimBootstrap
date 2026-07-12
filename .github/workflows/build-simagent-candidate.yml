@@ -36,35 +36,37 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Checkout SimAgent via native Git
-        shell: powershell
-        run: |
-          if (Test-Path "SimAgent") {
-            Remove-Item -Path "SimAgent" -Recurse -Force
-          }
-          git clone --depth 1 -b ${{ env.SIMAGENT_COMMIT }} https://github.com/kokodede32433-cmd/SimAgent.git SimAgent
+        shell: cmd
+        run: >
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -Command
+          "if (Test-Path 'SimAgent') { Remove-Item -Path 'SimAgent' -Recurse -Force };
+          git clone --depth 1 -b $env:SIMAGENT_COMMIT https://github.com/kokodede32433-cmd/SimAgent.git SimAgent"
 
       - name: Publish SimAgent Service
-        shell: powershell
-        run: |
-          dotnet publish SimAgent/src/SimAgent.Service/SimAgent.Service.csproj -c Release -r win-x64 --self-contained false -o artifacts/simagent-service-win-x64
+        shell: cmd
+        run: >
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -Command
+          "dotnet publish SimAgent/src/SimAgent.Service/SimAgent.Service.csproj -c Release -r win-x64 --self-contained false -o artifacts/simagent-service-win-x64"
 
       - name: Verify publish output
-        shell: powershell
-        run: |
-          if (-not (Test-Path "artifacts/simagent-service-win-x64/SimAgent.Service.exe")) {
-            throw "Published SimAgent.Service payload is missing SimAgent.Service.exe."
-          }
+        shell: cmd
+        run: >
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -Command
+          "if (-not (Test-Path 'artifacts/simagent-service-win-x64/SimAgent.Service.exe')) {
+            throw 'Published SimAgent.Service payload is missing SimAgent.Service.exe.'
+          }"
 
       - name: Compress Release Archive
-        shell: powershell
-        run: |
-          cd SimAgent
-          $sha = (git rev-parse --short HEAD).Trim()
-          cd ..
-          $zipName = "simagent-service-win-x64-$sha.zip"
-          Compress-Archive -Path "artifacts/simagent-service-win-x64/*" -DestinationPath "artifacts/$zipName" -Force
-          echo "ZIP_NAME=$zipName" | Out-File -FilePath $env:GITHUB_ENV -Append
-          echo "SHORT_SHA=$sha" | Out-File -FilePath $env:GITHUB_ENV -Append
+        shell: cmd
+        run: >
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -Command
+          "cd SimAgent;
+          $sha = (git rev-parse --short HEAD).Trim();
+          cd ..;
+          $zipName = 'simagent-service-win-x64-' + $sha + '.zip';
+          Compress-Archive -Path 'artifacts/simagent-service-win-x64/*' -DestinationPath ('artifacts/' + $zipName) -Force;
+          Add-Content -Path $env:GITHUB_ENV -Value ('ZIP_NAME=' + $zipName);
+          Add-Content -Path $env:GITHUB_ENV -Value ('SHORT_SHA=' + $sha)"
 
       - name: Create GitHub Release
         shell: bash
