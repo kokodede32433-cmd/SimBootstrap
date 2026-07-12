@@ -40,7 +40,7 @@ jobs:
         run: >
           powershell.exe -NoProfile -ExecutionPolicy Bypass -Command
           "if (Test-Path 'SimAgent') { Remove-Item -Path 'SimAgent' -Recurse -Force };
-          git clone --depth 1 -b $env:SIMAGENT_COMMIT https://github.com/kokodede32433-cmd/SimAgent.git SimAgent"
+          git clone --depth 1 -b $env:SIMAGENT_COMMIT git@github.com:kokodede32433-cmd/SimAgent.git SimAgent"
 
       - name: Publish SimAgent Service
         shell: cmd
