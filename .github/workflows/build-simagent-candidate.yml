@@ -35,12 +35,14 @@ jobs:
       - name: Checkout SimBootstrap
         uses: actions/checkout@v4
 
-      - name: Checkout SimAgent
-        uses: actions/checkout@v4
-        with:
-          repository: kokodede32433-cmd/SimAgent
-          ref: ${{ env.SIMAGENT_COMMIT }}
-          path: SimAgent
+      - name: Checkout SimAgent via native Git
+        shell: pwsh
+        run: |
+          if (Test-Path "SimAgent") {
+            Remove-Item -Path "SimAgent" -Recurse -Force
+          }
+          # Clone SimAgent using host Git configuration and credentials
+          git clone --depth 1 -b ${{ env.SIMAGENT_COMMIT }} https://github.com/kokodede32433-cmd/SimAgent.git SimAgent
 
       - name: Publish SimAgent Service
         shell: pwsh
