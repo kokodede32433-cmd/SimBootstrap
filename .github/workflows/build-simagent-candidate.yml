@@ -36,28 +36,27 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Checkout SimAgent via native Git
-        shell: pwsh
+        shell: powershell
         run: |
           if (Test-Path "SimAgent") {
             Remove-Item -Path "SimAgent" -Recurse -Force
           }
-          # Clone SimAgent using host Git configuration and credentials
           git clone --depth 1 -b ${{ env.SIMAGENT_COMMIT }} https://github.com/kokodede32433-cmd/SimAgent.git SimAgent
 
       - name: Publish SimAgent Service
-        shell: pwsh
+        shell: powershell
         run: |
           dotnet publish SimAgent/src/SimAgent.Service/SimAgent.Service.csproj -c Release -r win-x64 --self-contained false -o artifacts/simagent-service-win-x64
 
       - name: Verify publish output
-        shell: pwsh
+        shell: powershell
         run: |
           if (-not (Test-Path "artifacts/simagent-service-win-x64/SimAgent.Service.exe")) {
             throw "Published SimAgent.Service payload is missing SimAgent.Service.exe."
           }
 
       - name: Compress Release Archive
-        shell: pwsh
+        shell: powershell
         run: |
           cd SimAgent
           $sha = (git rev-parse --short HEAD).Trim()
