@@ -386,16 +386,19 @@ try {
         throw "GET_SIM_STATUS did not report $selectedApp as running."
     }
 
-    # Confirm Agent ID and count unchanged
-    if ($simStatusResult.agent.targetAgentConfigured -ne $preflight.agent.targetAgentConfigured) {
-        throw "Target agent identity changed."
+    # 11. Confirm Agent ID and count unchanged
+    Write-Host "Verifying agent identity and count after E2E execution..."
+    $preflightAfter = Invoke-RestMethod -Method Post -Uri "$supabaseUrl/functions/v1/create-e2e-agent-command" -Headers $e2eHeaders -Body (@{ action = "preflight" } | ConvertTo-Json -Compress)
+    
+    if (-not $preflightAfter.agent.targetAgentConfigured) {
+        throw "Target agent identity changed or missing after E2E."
     }
-    if ([int]$simStatusResult.agentCount -ne $agentCountBefore) {
-        throw "Agent count changed from $agentCountBefore to $($simStatusResult.agentCount)."
+    if ([int]$preflightAfter.agentCount -ne $agentCountBefore) {
+        throw "Agent count changed from $agentCountBefore to $($preflightAfter.agentCount)."
     }
     Write-Host "Agent ID and Agent count confirmed unchanged."
 
-    # 11. Write final redacted diagnostics report
+    # 12. Write final redacted diagnostics report
     $report = [ordered]@{
         Success = $true
         Stage = "E2E"
@@ -414,8 +417,8 @@ try {
             Status = $simStatusResult.status
             TargetAppRunning = $targetAppResult.running
         }
-        AgentIdPreserved = ($simStatusResult.agent.targetAgentConfigured -eq $true)
-        AgentCountUnchanged = ($simStatusResult.agentCount -eq $agentCountBefore)
+        AgentIdPreserved = ($preflightAfter.agent.targetAgentConfigured -eq $true)
+        AgentCountUnchanged = ($preflightAfter.agentCount -eq $agentCountBefore)
     }
 
     Write-JsonFile $report $validationReportPath
