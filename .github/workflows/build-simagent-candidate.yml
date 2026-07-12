@@ -46,17 +46,17 @@ jobs:
         shell: cmd
         run: >
           powershell.exe -NoProfile -ExecutionPolicy Bypass -Command
-          "dotnet publish SimAgent/src/SimAgent.Service/SimAgent.Service.csproj -c Release -r win-x64 --self-contained false -o artifacts/simagent-service-win-x64;
-          dotnet publish SimAgent/src/SimAgent.SessionHost/SimAgent.SessionHost.csproj -c Release -r win-x64 --self-contained false -o artifacts/simagent-service-win-x64"
+          "dotnet publish SimAgent/src/SimAgent.Service/SimAgent.Service.csproj -c Release -r win-x64 --self-contained false -o artifacts/package/Agent;
+          dotnet publish SimAgent/src/SimAgent.SessionHost/SimAgent.SessionHost.csproj -c Release -r win-x64 --self-contained false -o artifacts/package/SessionHost"
 
       - name: Verify publish output
         shell: cmd
         run: >
           powershell.exe -NoProfile -ExecutionPolicy Bypass -Command
-          "if (-not (Test-Path 'artifacts/simagent-service-win-x64/SimAgent.Service.exe')) {
+          "if (-not (Test-Path 'artifacts/package/Agent/SimAgent.Service.exe')) {
             throw 'Published SimAgent.Service payload is missing SimAgent.Service.exe.'
           };
-          if (-not (Test-Path 'artifacts/simagent-service-win-x64/SimAgent.SessionHost.exe')) {
+          if (-not (Test-Path 'artifacts/package/SessionHost/SimAgent.SessionHost.exe')) {
             throw 'Published SimAgent.SessionHost payload is missing SimAgent.SessionHost.exe.'
           }"
 
@@ -68,7 +68,7 @@ jobs:
           $sha = (git rev-parse --short HEAD).Trim();
           cd ..;
           $zipName = 'simagent-service-win-x64-' + $sha + '.zip';
-          Compress-Archive -Path 'artifacts/simagent-service-win-x64/*' -DestinationPath ('artifacts/' + $zipName) -Force;
+          Compress-Archive -Path 'artifacts/package/*' -DestinationPath ('artifacts/' + $zipName) -Force;
           Add-Content -Path $env:GITHUB_ENV -Value ('ZIP_NAME=' + $zipName);
           Add-Content -Path $env:GITHUB_ENV -Value ('SHORT_SHA=' + $sha)"
 

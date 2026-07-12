@@ -19,12 +19,14 @@ $legacyServiceName = "SimBootstrapAgent"
 $programFilesRoot = "C:\Program Files\SimBootstrap"
 $programDataRoot = "C:\ProgramData\SimBootstrap"
 $agentDirectory = Join-Path $programFilesRoot "Agent"
+$sessionHostDirectory = Join-Path $programFilesRoot "SessionHost"
 $agentExePath = Join-Path $agentDirectory "SimAgent.Service.exe"
-$sessionHostExePath = Join-Path $agentDirectory "SimAgent.SessionHost.exe"
+$sessionHostExePath = Join-Path $sessionHostDirectory "SimAgent.SessionHost.exe"
 $sessionHostShortcutName = "SimAgent.SessionHost.lnk"
 $agentSettingsPath = Join-Path $programDataRoot "config\agentsettings.json"
 $approvedAppsPath = Join-Path $programDataRoot "config\approved-apps.json"
 $backupRoot = Join-Path $programFilesRoot "Agent.backups"
+$sessionHostBackupRoot = Join-Path $programFilesRoot "SessionHost.backups"
 $runDirectory = Join-Path (Join-Path $RootDirectory "runs") $RunId
 $artifactDirectory = Join-Path $runDirectory "artifacts"
 $validationReportPath = Join-Path $artifactDirectory "qa-result.json"
@@ -157,6 +159,7 @@ function Restore-Backup {
 
 New-Directory $artifactDirectory
 $backupPath = Join-Path $backupRoot ("Agent-" + (Get-Date -Format "yyyyMMddHHmmss"))
+$sessionHostBackupPath = Join-Path $sessionHostBackupRoot ("SessionHost-" + (Get-Date -Format "yyyyMMddHHmmss"))
 $rollbackAttempted = $false
 $rollbackSucceeded = $false
 $approvedAppsExistedBefore = Test-Path $approvedAppsPath
@@ -165,6 +168,7 @@ $validation = [ordered]@{
     Success = $false
     InstalledSimAgentCommit = $InstalledSimAgentCommit
     BackupPath = $backupPath
+    SessionHostBackupPath = $sessionHostBackupPath
     PreflightBefore = $null
     PreflightAfter = $null
     ServiceBefore = $null
@@ -194,10 +198,19 @@ try {
     if (-not (Test-Path $agentSettingsPath)) {
         throw "agentsettings.json is missing; refusing to update because pairing identity must be preserved."
     }
-    if (-not (Test-Path (Join-Path $PayloadDirectory "SimAgent.Service.exe"))) {
+    $agentPayloadDirectory = Join-Path $PayloadDirectory "Agent"
+    $sessionHostPayloadDirectory = Join-Path $PayloadDirectory "SessionHost"
+    if (-not (Test-Path $agentPayloadDirectory)) {
+        $agentPayloadDirectory = $PayloadDirectory
+    }
+    if (-not (Test-Path $sessionHostPayloadDirectory)) {
+        $sessionHostPayloadDirectory = $PayloadDirectory
+    }
+
+    if (-not (Test-Path (Join-Path $agentPayloadDirectory "SimAgent.Service.exe"))) {
         throw "Published payload is missing SimAgent.Service.exe."
     }
-    if (-not (Test-Path (Join-Path $PayloadDirectory "SimAgent.SessionHost.exe"))) {
+    if (-not (Test-Path (Join-Path $sessionHostPayloadDirectory "SimAgent.SessionHost.exe"))) {
         throw "Published payload is missing SimAgent.SessionHost.exe."
     }
     $validation.PayloadExecutableExists = $true
@@ -222,6 +235,10 @@ try {
 
     New-Directory $backupRoot
     Copy-Item -Path $agentDirectory -Destination $backupPath -Recurse -Force
+    if (Test-Path $sessionHostDirectory) {
+        New-Directory $sessionHostBackupRoot
+        Copy-Item -Path $sessionHostDirectory -Destination $sessionHostBackupPath -Recurse -Force
+    }
 
     Get-Process -Name "SimAgent.SessionHost" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
@@ -231,7 +248,13 @@ try {
     }
 
     Get-ChildItem -Path $agentDirectory -Force | Remove-Item -Recurse -Force
-    Copy-Item -Path (Join-Path $PayloadDirectory "*") -Destination $agentDirectory -Recurse -Force
+    Copy-Item -Path (Join-Path $agentPayloadDirectory "*") -Destination $agentDirectory -Recurse -Force
+    if (Test-Path $sessionHostDirectory) {
+        Get-ChildItem -Path $sessionHostDirectory -Force | Remove-Item -Recurse -Force
+    } else {
+        New-Directory $sessionHostDirectory
+    }
+    Copy-Item -Path (Join-Path $sessionHostPayloadDirectory "*") -Destination $sessionHostDirectory -Recurse -Force
 
     if (-not (Test-Path $agentSettingsPath)) {
         throw "agentsettings.json disappeared during payload update."

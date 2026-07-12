@@ -6,22 +6,31 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$exe = Join-Path $PayloadDirectory "SimAgent.Service.exe"
+$agentPayloadDirectory = Join-Path $PayloadDirectory "Agent"
+$sessionHostPayloadDirectory = Join-Path $PayloadDirectory "SessionHost"
+if (-not (Test-Path $agentPayloadDirectory)) {
+    $agentPayloadDirectory = $PayloadDirectory
+}
+if (-not (Test-Path $sessionHostPayloadDirectory)) {
+    $sessionHostPayloadDirectory = $PayloadDirectory
+}
+
+$exe = Join-Path $agentPayloadDirectory "SimAgent.Service.exe"
 if (-not (Test-Path $exe)) {
     throw "SimAgent.Service.exe missing from publish output."
 }
 
-$dll = Join-Path $PayloadDirectory "SimAgent.Service.dll"
+$dll = Join-Path $agentPayloadDirectory "SimAgent.Service.dll"
 if (-not (Test-Path $dll)) {
     throw "SimAgent.Service.dll missing from publish output."
 }
 
-$sessionHostExe = Join-Path $PayloadDirectory "SimAgent.SessionHost.exe"
+$sessionHostExe = Join-Path $sessionHostPayloadDirectory "SimAgent.SessionHost.exe"
 if (-not (Test-Path $sessionHostExe)) {
     throw "SimAgent.SessionHost.exe missing from publish output."
 }
 
-$sessionHostDll = Join-Path $PayloadDirectory "SimAgent.SessionHost.dll"
+$sessionHostDll = Join-Path $sessionHostPayloadDirectory "SimAgent.SessionHost.dll"
 if (-not (Test-Path $sessionHostDll)) {
     throw "SimAgent.SessionHost.dll missing from publish output."
 }
