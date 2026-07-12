@@ -8,6 +8,15 @@ on:
         required: true
         default: "d494bebadac122f2f68db37a53a257b9b8704ddc"
         type: string
+      release_tag:
+        description: "SimBootstrap prerelease tag containing the SimAgent payload zip"
+        required: true
+        type: string
+      payload_asset_name:
+        description: "Payload zip asset name"
+        required: true
+        default: "simagent-service-win-x64-d494beb.zip"
+        type: string
 
 permissions:
   contents: read
@@ -26,22 +35,19 @@ jobs:
       - name: Checkout SimBootstrap
         uses: actions/checkout@v4
 
-      - name: Checkout SimAgent
-        uses: actions/checkout@v4
-        with:
-          repository: kokodede32433-cmd/SimAgent
-          ref: ${{ inputs.simagent_commit }}
-          path: SimAgent
-
-      - name: Publish SimAgent.Service
-        shell: cmd
-        run: >
-          dotnet publish SimAgent\src\SimAgent.Service\SimAgent.Service.csproj
-          -c Release
-          -r win-x64
-          --self-contained false
-          -p:SourceRevisionId=${{ inputs.simagent_commit }}
-          -o artifacts\simagent-service-win-x64
+      - name: Download staging payload
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          gh release download "${{ inputs.release_tag }}" `
+            --repo "${{ github.repository }}" `
+            --pattern "${{ inputs.payload_asset_name }}" `
+            --dir artifacts
+          New-Item -ItemType Directory -Force -Path artifacts\simagent-service-win-x64 | Out-Null
+          Expand-Archive -Path (Join-Path "artifacts" "${{ inputs.payload_asset_name }}") -DestinationPath artifacts\simagent-service-win-x64 -Force
 
       - name: Verify publish output
         shell: pwsh
@@ -55,7 +61,7 @@ jobs:
           if (-not (Test-Path $dll)) {
             throw "SimAgent.Service.dll missing from publish output."
           }
-          $needle = [System.Text.Encoding]::UTF8.GetBytes("GET_SIM_STATUS")
+          $needle = [System.Text.Encoding]::UTF8.GetBytes("SimulatorStatusCommandHandler")
           $bytes = [System.IO.File]::ReadAllBytes($dll)
           $found = $false
           for ($i = 0; $i -le $bytes.Length - $needle.Length; $i++) {
