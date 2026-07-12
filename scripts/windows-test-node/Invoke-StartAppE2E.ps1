@@ -10,6 +10,7 @@ $ErrorActionPreference = "Stop"
 
 $serviceName = "SimAgentService"
 $programDataRoot = "C:\ProgramData\SimBootstrap"
+$programFilesRoot = "C:\Program Files\SimBootstrap"
 $agentSettingsPath = Join-Path $programDataRoot "config\agentsettings.json"
 $configPath = Join-Path $programDataRoot "config\approved-apps.json"
 $runDirectory = Join-Path (Join-Path $RootDirectory "runs") $RunId
@@ -49,6 +50,27 @@ function ConvertTo-RedactedText {
         })
     }
     return $redacted
+}
+
+function Export-RecentRedactedLogs {
+    $logRoots = @(
+        (Join-Path $programDataRoot "logs"),
+        (Join-Path (Join-Path $programFilesRoot "SessionHost") "logs")
+    )
+
+    foreach ($root in $logRoots) {
+        try {
+            $logs = Get-ChildItem -Path $root -File -ErrorAction SilentlyContinue |
+                Where-Object { $_.LastWriteTime -gt (Get-Date).AddMinutes(-20) } |
+                Select-Object -First 10
+
+            foreach ($log in $logs) {
+                $destination = Join-Path $artifactDirectory ("logs\" + $log.Name + ".redacted.txt")
+                New-Directory (Split-Path -Parent $destination)
+                ConvertTo-RedactedText (Get-Content -Raw -Path $log.FullName) | Set-Content -Path $destination -Encoding UTF8
+            }
+        } catch {}
+    }
 }
 
 function Assert-RequiredSecret {
@@ -106,7 +128,7 @@ try {
     if ([string]::IsNullOrWhiteSpace($agentId)) {
         throw "agentId is empty in agentsettings.json"
     }
-    Write-Host "Agent ID: $(ConvertTo-RedactedText $agentId)"
+    Write-Host "Agent identity loaded from local config."
 
     # 3. Audit harmless applications
     $simhubPaths = @(
@@ -635,6 +657,7 @@ try {
         Error = "$_"
     }
     New-Directory $artifactDirectory
+    Export-RecentRedactedLogs
     Write-JsonFile $failureReport $validationReportPath
     Write-JsonFile $failureReport (Join-Path $artifactDirectory "validation-report.json")
     exit 1
