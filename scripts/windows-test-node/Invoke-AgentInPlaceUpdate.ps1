@@ -166,6 +166,7 @@ function Test-SessionHostCommandPipe {
         try {
             $client.Connect(3000)
             $client.ReadMode = [System.IO.Pipes.PipeTransmissionMode]::Message
+            $client.ReadTimeout = 3000
             $request = [ordered]@{
                 RequestId = [guid]::NewGuid()
                 Method = "GET_SESSION_STATUS"
