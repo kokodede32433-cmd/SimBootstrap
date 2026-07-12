@@ -27,7 +27,7 @@ jobs:
           SIMCRM_STAGING_SUPABASE_ANON_KEY: ${{ secrets.SIMCRM_STAGING_SUPABASE_ANON_KEY }}
           SIMCRM_STAGING_PAIR_CODE_TOKEN: ${{ secrets.SIMCRM_STAGING_PAIR_CODE_TOKEN }}
           E2E_EMAIL: "e2e_owner@simcrm.local"
-          E2E_PASSWORD: "TestPassword123!"
+          E2E_PASSWORD: ${{ secrets.SIMCRM_STAGING_E2E_PASSWORD }}
         run: >
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\windows-test-node\Invoke-StartAppE2E.ps1
           -RunId "${{ github.run_id }}-${{ github.run_attempt }}"

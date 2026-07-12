@@ -61,6 +61,28 @@ function Assert-RequiredSecret {
     }
 }
 
+function Get-InteractiveUserName {
+    $explorerProcesses = @(
+        Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" -ErrorAction SilentlyContinue |
+            Where-Object { $_.SessionId -gt 0 }
+    )
+
+    foreach ($process in $explorerProcesses) {
+        $owner = Invoke-CimMethod -InputObject $process -MethodName GetOwner -ErrorAction SilentlyContinue
+        if ($null -eq $owner -or [string]::IsNullOrWhiteSpace($owner.User)) {
+            continue
+        }
+
+        if ([string]::IsNullOrWhiteSpace($owner.Domain)) {
+            return $owner.User
+        }
+
+        return "$($owner.Domain)\$($owner.User)"
+    }
+
+    return $null
+}
+
 try {
     New-Directory $artifactDirectory
 
@@ -165,6 +187,11 @@ try {
 
     $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
     $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($currentUser, "FullControl", "Allow")))
+    $interactiveUser = Get-InteractiveUserName
+    if ([string]::IsNullOrWhiteSpace($interactiveUser)) {
+        throw "Unable to resolve logged-in interactive user for approved app config ACL."
+    }
+    $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($interactiveUser, "ReadAndExecute", "Allow")))
 
     Set-Acl -LiteralPath $configPath -AclObject $acl
     Write-Host "Secure ACL applied."
