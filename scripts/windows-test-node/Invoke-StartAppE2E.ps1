@@ -253,12 +253,16 @@ try {
     $deadline = (Get-Date).AddSeconds(180)
     Write-Host "Waiting for first launch execution..."
     while ((Get-Date) -lt $deadline) {
-        $statusBody = @{ p_command_id = $commandId } | ConvertTo-Json -Compress
-        $statusResponse = Invoke-RestMethod -Method Post -Uri "$supabaseUrl/rest/v1/rpc/get_agent_command_status_v1" -Headers $rpcHeaders -Body $statusBody
-        $status = $statusResponse.status
-        if ($status -in @("succeeded", "failed", "expired", "cancelled")) {
-            $firstLaunchResult = $statusResponse
-            break
+        try {
+            $statusBody = @{ p_command_id = $commandId } | ConvertTo-Json -Compress
+            $statusResponse = Invoke-RestMethod -Method Post -Uri "$supabaseUrl/rest/v1/rpc/get_agent_command_status_v1" -Headers $rpcHeaders -Body $statusBody
+            $status = $statusResponse.status
+            if ($status -in @("succeeded", "failed", "expired", "cancelled")) {
+                $firstLaunchResult = $statusResponse
+                break
+            }
+        } catch {
+            Write-Host "Warning: Transient network error while polling status: $_"
         }
         Start-Sleep -Seconds 5
     }
@@ -288,12 +292,16 @@ try {
     $deadline = (Get-Date).AddSeconds(180)
     Write-Host "Waiting for second launch execution..."
     while ((Get-Date) -lt $deadline) {
-        $statusBody2 = @{ p_command_id = $commandId2 } | ConvertTo-Json -Compress
-        $statusResponse2 = Invoke-RestMethod -Method Post -Uri "$supabaseUrl/rest/v1/rpc/get_agent_command_status_v1" -Headers $rpcHeaders -Body $statusBody2
-        $status2 = $statusResponse2.status
-        if ($status2 -in @("succeeded", "failed", "expired", "cancelled")) {
-            $secondLaunchResult = $statusResponse2
-            break
+        try {
+            $statusBody2 = @{ p_command_id = $commandId2 } | ConvertTo-Json -Compress
+            $statusResponse2 = Invoke-RestMethod -Method Post -Uri "$supabaseUrl/rest/v1/rpc/get_agent_command_status_v1" -Headers $rpcHeaders -Body $statusBody2
+            $status2 = $statusResponse2.status
+            if ($status2 -in @("succeeded", "failed", "expired", "cancelled")) {
+                $secondLaunchResult = $statusResponse2
+                break
+            }
+        } catch {
+            Write-Host "Warning: Transient network error while polling status: $_"
         }
         Start-Sleep -Seconds 5
     }
@@ -327,12 +335,16 @@ try {
     $deadline = (Get-Date).AddSeconds(180)
     Write-Host "Waiting for GET_SIM_STATUS execution..."
     while ((Get-Date) -lt $deadline) {
-        $statusBody3 = @{ p_command_id = $commandId3 } | ConvertTo-Json -Compress
-        $statusResponse3 = Invoke-RestMethod -Method Post -Uri "$supabaseUrl/rest/v1/rpc/get_agent_command_status_v1" -Headers $rpcHeaders -Body $statusBody3
-        $status3 = $statusResponse3.status
-        if ($status3 -in @("succeeded", "failed", "expired", "cancelled")) {
-            $simStatusResult = $statusResponse3
-            break
+        try {
+            $statusBody3 = @{ p_command_id = $commandId3 } | ConvertTo-Json -Compress
+            $statusResponse3 = Invoke-RestMethod -Method Post -Uri "$supabaseUrl/rest/v1/rpc/get_agent_command_status_v1" -Headers $rpcHeaders -Body $statusBody3
+            $status3 = $statusResponse3.status
+            if ($status3 -in @("succeeded", "failed", "expired", "cancelled")) {
+                $simStatusResult = $statusResponse3
+                break
+            }
+        } catch {
+            Write-Host "Warning: Transient network error while polling status: $_"
         }
         Start-Sleep -Seconds 5
     }
