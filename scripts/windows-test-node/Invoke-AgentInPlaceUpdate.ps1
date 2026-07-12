@@ -147,7 +147,7 @@ function Start-SessionHostForInteractiveUser {
 
     $action = New-ScheduledTaskAction -Execute $sessionHostExePath -WorkingDirectory $agentDirectory
     $trigger = New-ScheduledTaskTrigger -Once -At ((Get-Date).AddMinutes(1))
-    $principal = New-ScheduledTaskPrincipal -UserId $UserName -LogonType Interactive -RunLevel LeastPrivilege
+    $principal = New-ScheduledTaskPrincipal -UserId $UserName -LogonType Interactive -RunLevel Limited
     $task = New-ScheduledTask -Action $action -Trigger $trigger -Principal $principal
     Register-ScheduledTask -TaskName $taskName -InputObject $task -Force | Out-Null
     Start-ScheduledTask -TaskName $taskName
