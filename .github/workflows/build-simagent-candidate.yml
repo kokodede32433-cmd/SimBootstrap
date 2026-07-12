@@ -1,0 +1,67 @@
+name: Build SimAgent Candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      simagent_commit:
+        description: "SimAgent commit/branch to build"
+        required: true
+        default: "codex/start-approved-app-phase3"
+        type: string
+      release_tag:
+        description: "Release tag to publish"
+        required: true
+        default: "simagent-stop-approved-app-staging-20260712"
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout SimBootstrap
+        uses: actions/checkout@v4
+
+      - name: Checkout SimAgent
+        uses: actions/checkout@v4
+        with:
+          repository: kokodede32433-cmd/SimAgent
+          ref: ${{ inputs.simagent_commit }}
+          path: SimAgent
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Publish SimAgent Service
+        shell: pwsh
+        run: |
+          dotnet publish SimAgent/src/SimAgent.Service/SimAgent.Service.csproj -c Release -r win-x64 --self-contained false -o artifacts/simagent-service-win-x64
+
+      - name: Verify publish output
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "artifacts/simagent-service-win-x64/SimAgent.Service.exe")) {
+            throw "Published SimAgent.Service payload is missing SimAgent.Service.exe."
+          }
+
+      - name: Compress Release Archive
+        shell: pwsh
+        run: |
+          cd SimAgent
+          $sha = (git rev-parse --short HEAD).Trim()
+          cd ..
+          $zipName = "simagent-service-win-x64-$sha.zip"
+          Compress-Archive -Path "artifacts/simagent-service-win-x64/*" -DestinationPath "artifacts/$zipName" -Force
+          echo "ZIP_NAME=$zipName" | Out-File -FilePath $env:GITHUB_ENV -Append
+          echo "SHORT_SHA=$sha" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Create GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ inputs.release_tag }}" "artifacts/${ZIP_NAME}" --prerelease --title "SimAgent STOP_APPROVED_APP staging candidate" --notes "Staging-only SimAgent payload for STOP_APPROVED_APP Phase 3.2. Source commit: ${SHORT_SHA}."
