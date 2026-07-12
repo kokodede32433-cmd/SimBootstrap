@@ -55,6 +55,7 @@ function ConvertTo-RedactedText {
 function Export-RecentRedactedLogs {
     $logRoots = @(
         (Join-Path $programDataRoot "logs"),
+        (Join-Path (Join-Path $programFilesRoot "Agent") "logs"),
         (Join-Path (Join-Path $programFilesRoot "SessionHost") "logs")
     )
 
