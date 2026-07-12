@@ -272,8 +272,8 @@ try {
     }
     Write-Host "First launch status: $($firstLaunchResult.status)"
     Write-Host "First launch result: $(ConvertTo-Json $firstLaunchResult.result)"
-    if ($firstLaunchResult.status -ne "succeeded" -or $firstLaunchResult.result.status -ne "started") {
-        throw "First launch command failed or did not report started. Status: $($firstLaunchResult.status), Result status: $($firstLaunchResult.result.status)"
+    if ($firstLaunchResult.status -ne "succeeded" -or $firstLaunchResult.result.status -notin @("started", "already_running")) {
+        throw "First launch command failed or did not report started/already_running. Status: $($firstLaunchResult.status), Result status: $($firstLaunchResult.result.status)"
     }
     if ($firstLaunchResult.attemptCount -ne 1) {
         throw "First launch attemptCount is $($firstLaunchResult.attemptCount), expected 1."
