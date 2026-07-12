@@ -1,0 +1,23 @@
+name: Windows Test Node Identity Check
+
+on:
+  workflow_dispatch:
+
+jobs:
+  identity-check:
+    name: Windows Identity Check
+    runs-on:
+      - self-hosted
+      - Windows
+      - X64
+      - simplatform-windows-test
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout SimBootstrap
+        uses: actions/checkout@v4
+
+      - name: Run Identity Check
+        shell: powershell
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\windows-test-node\Get-AgentIdentityInfo.ps1

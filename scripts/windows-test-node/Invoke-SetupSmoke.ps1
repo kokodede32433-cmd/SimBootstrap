@@ -366,33 +366,41 @@ if ($validation.Service.PathName) {
 $commandSuccess = $false
 if ($validation.Installation.Success -and $validation.Service.Status -eq "Running" -and (Test-Path $agentSettingsPath)) {
     try {
-        $settings = Get-Content -Raw -Path $agentSettingsPath | ConvertFrom-Json
-        $agentId = $settings.AgentId
+        Assert-RequiredSecret "SIMCRM_STAGING_SUPABASE_URL" $env:SIMCRM_STAGING_SUPABASE_URL
+        Assert-RequiredSecret "SIMCRM_STAGING_SUPABASE_ANON_KEY" $env:SIMCRM_STAGING_SUPABASE_ANON_KEY
+        Assert-RequiredSecret "SIMCRM_STAGING_PAIR_CODE_TOKEN" $env:SIMCRM_STAGING_PAIR_CODE_TOKEN
+
         $supabaseUrl = $env:SIMCRM_STAGING_SUPABASE_URL.TrimEnd("/")
-        
-        Write-Host "Creating test PING command for Agent: $agentId"
-        $body = @{ p_agent_id = $agentId; p_command_type = "PING" } | ConvertTo-Json -Compress
+        $issuerUrl = "$supabaseUrl/functions/v1/create-e2e-agent-command"
+
+        Write-Host "Creating staging E2E PING command for fixed Windows Test Node Agent."
         $headers = @{
             apikey = $env:SIMCRM_STAGING_SUPABASE_ANON_KEY
+            Authorization = "Bearer $($env:SIMCRM_STAGING_PAIR_CODE_TOKEN)"
             "Content-Type" = "application/json"
         }
-        $rpcUrl = "$supabaseUrl/rest/v1/rpc/create_test_agent_command_v1"
-        $commandId = Invoke-RestMethod -Method Post -Uri $rpcUrl -Headers $headers -Body $body
+        $commandResponse = Invoke-RestMethod -Method Post -Uri $issuerUrl -Headers $headers -Body (@{ action = "create" } | ConvertTo-Json -Compress)
+        $commandId = if ($commandResponse.commandId) { $commandResponse.commandId } elseif ($commandResponse.commandid) { $commandResponse.commandid } else { $null }
+        if ([string]::IsNullOrWhiteSpace($commandId)) {
+            throw "E2E command issuer did not return a command ID."
+        }
         
-        Write-Host "Polled command ID: $commandId. Waiting for execution..."
-        $deadline = (Get-Date).AddSeconds(30)
+        Write-Host "Created staging E2E PING command. Waiting for execution..."
+        $deadline = (Get-Date).AddSeconds(180)
         while ((Get-Date) -lt $deadline) {
-            $cmdResult = Invoke-RestMethod -Method Get -Uri "$supabaseUrl/rest/v1/agent_commands?id=eq.$commandId" -Headers $headers
-            if ($cmdResult -and $cmdResult.status -eq "succeeded") {
+            $statusResponse = Invoke-RestMethod -Method Post -Uri $issuerUrl -Headers $headers -Body (@{ action = "status"; commandId = $commandId } | ConvertTo-Json -Compress)
+            $status = if ($statusResponse.status) { [string]$statusResponse.status } else { "" }
+            $message = if ($statusResponse.result -and $statusResponse.result.message) { [string]$statusResponse.result.message } else { "" }
+            if ($status -eq "succeeded" -and $message -eq "pong") {
                 $commandSuccess = $true
                 Write-Host "PING command succeeded cleanly!"
                 break
             }
-            if ($cmdResult -and $cmdResult.status -eq "failed") {
+            if ($status -eq "failed") {
                 Write-Host "PING command failed status returned."
                 break
             }
-            Start-Sleep -Seconds 2
+            Start-Sleep -Seconds 5
         }
     } catch {
         Write-Host "Warning: Failed during commands E2E test execution: $_"

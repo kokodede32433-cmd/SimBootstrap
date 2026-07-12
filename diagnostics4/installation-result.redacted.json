@@ -1,0 +1,57 @@
+﻿{
+  "Success": true,
+  "State": "Completed",
+  "Message": "Installation completed successfully.",
+  "Logs": [
+    {
+      "Timestamp": "2026-07-11T20:22:56.2462297+00:00",
+      "State": "Preparing",
+      "Message": "Preparing setup."
+    },
+    {
+      "Timestamp": "2026-07-11T20:22:56.2823832+00:00",
+      "State": "Provisioning",
+      "Message": "Running provisioning in apply mode."
+    },
+    {
+      "Timestamp": "2026-07-11T20:22:56.2833659+00:00",
+      "State": "InstallingAgent",
+      "Message": "Extracting Agent payload."
+    },
+    {
+      "Timestamp": "2026-07-11T20:22:56.3272807+00:00",
+      "State": "Preparing",
+      "Message": "Connecting to pairing service..."
+    },
+    {
+      "Timestamp": "2026-07-11T20:22:57.0242711+00:00",
+      "State": "Preparing",
+      "Message": "Pairing successful."
+    },
+    {
+      "Timestamp": "2026-07-11T20:22:57.0249439+00:00",
+      "State": "InstallingAgent",
+      "Message": "Writing agentsettings.json."
+    },
+    {
+      "Timestamp": "2026-07-11T20:22:57.0514225+00:00",
+      "State": "ConfiguringService",
+      "Message": "Installing or updating Windows Service."
+    },
+    {
+      "Timestamp": "2026-07-11T20:22:57.1445175+00:00",
+      "State": "StartingAgent",
+      "Message": "Starting Windows Service."
+    },
+    {
+      "Timestamp": "2026-07-11T20:22:58.1574969+00:00",
+      "State": "Verifying",
+      "Message": "Verifying installation."
+    },
+    {
+      "Timestamp": "2026-07-11T20:22:58.6733609+00:00",
+      "State": "Completed",
+      "Message": "Installation completed successfully."
+    }
+  ]
+}

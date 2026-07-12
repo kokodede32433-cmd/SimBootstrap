@@ -1,0 +1,62 @@
+﻿[2026-07-11T23:18:30.1517824+03:00] [Application Error] Faulting application name: simpro3.exe, version: 109.1.18.0, time stamp: 0x6a280fa3
+Faulting module name: simpro3.exe, version: 109.1.18.0, time stamp: 0x6a280fa3
+Exception code: 0xc0000005
+Fault offset: 0x00000000001226eb
+Faulting process id: 0x181C
+Faulting application start time: 0x1DD11727061B74E
+Faulting application path: C:\Program Files (x86)\Simagic\Simpro3\bin\simpro3.exe
+Faulting module path: C:\Program Files (x86)\Simagic\Simpro3\bin\simpro3.exe
+Report Id: f8b263fa-3f8a-4445-bd0d-c02ed80bcbc7
+Faulting package full name: 
+Faulting package-relative application ID: 
+[2026-07-11T23:18:30.0883610+03:00] [Application Error] Faulting application name: simpro3.exe, version: 109.1.18.0, time stamp: 0x6a280fa3
+Faulting module name: simpro3.exe, version: 109.1.18.0, time stamp: 0x6a280fa3
+Exception code: 0xc0000005
+Fault offset: 0x00000000001226eb
+Faulting process id: 0x6AF4
+Faulting application start time: 0x1DD11727057ADA8
+Faulting application path: C:\Program Files (x86)\Simagic\Simpro3\bin\simpro3.exe
+Faulting module path: C:\Program Files (x86)\Simagic\Simpro3\bin\simpro3.exe
+Report Id: d023e2bf-6c64-4b0b-a116-d01c6e729123
+Faulting package full name: 
+Faulting package-relative application ID: 
+[2026-07-11T23:18:30.0244051+03:00] [Application Error] Faulting application name: simpro3.exe, version: 109.1.18.0, time stamp: 0x6a280fa3
+Faulting module name: simpro3.exe, version: 109.1.18.0, time stamp: 0x6a280fa3
+Exception code: 0xc0000005
+Fault offset: 0x00000000001226eb
+Faulting process id: 0x1860
+Faulting application start time: 0x1DD1172702D4244
+Faulting application path: C:\Program Files (x86)\Simagic\Simpro3\bin\simpro3.exe
+Faulting module path: C:\Program Files (x86)\Simagic\Simpro3\bin\simpro3.exe
+Report Id: 94802b21-386b-4f5d-8c61-1f72e90f8a6e
+Faulting package full name: 
+Faulting package-relative application ID: 
+[2026-07-11T23:17:04.5259636+03:00] [Application Error] Faulting application name: SimAgent.Service.exe, version: 1.0.0.0, time stamp: 0x6a060000
+Faulting module name: KERNELBASE.dll, version: 10.0.26100.8655, time stamp: 0x9e0ffa42
+Exception code: 0xe0434352
+Fault offset: 0x00000000000c1b6a
+Faulting process id: 0x73A8
+Faulting application start time: 0x1DD11723CEC2E5C
+Faulting application path: C:\Program Files\SimBootstrap\Agent\SimAgent.Service.exe
+Faulting module path: C:\Windows\System32\KERNELBASE.dll
+Report Id: cd9e18c2-9c1c-4cfc-a651-d735865a15ac
+Faulting package full name: 
+Faulting package-relative application ID: 
+[2026-07-11T23:17:04.4507671+03:00] [.NET Runtime] Application: SimAgent.Service.exe
+CoreCLR Version: 9.0.1726.26416
+.NET Version: 9.0.17
+Description: The process was terminated due to an unhandled exception.
+Exception Info: System.InvalidOperationException: Type Serilog.Formatting.Compact.CompactJsonFormatter, Serilog.Formatting.Compact was not found.
+   at Serilog.Settings.Configuration.StringArgumentValue.ConvertTo(Type toType, ResolutionContext resolutionContext)
+   at Serilog.Settings.Configuration.ConfigurationReader.<>c__DisplayClass22_2.<CallConfigurationMethods>b__3(<>f__AnonymousType9`2 <>h__TransparentIdentifier0)
+   at System.Linq.Enumerable.IListSkipTakeSelectIterator`2.Fill(IList`1 source, Span`1 destination, Func`2 func, Int32 sourceIndex)
+   at System.Linq.Enumerable.IListSkipTakeSelectIterator`2.ToList()
+   at Serilog.Settings.Configuration.ConfigurationReader.CallConfigurationMethods(ILookup`2 methods, IReadOnlyCollection`1 configurationMethods, Object receiver)
+   at Serilog.Settings.Configuration.ConfigurationReader.ApplySinks(LoggerConfiguration loggerConfiguration)
+   at Serilog.Settings.Configuration.ConfigurationReader.Configure(LoggerConfiguration loggerConfiguration)
+   at Serilog.Configuration.LoggerSettingsConfiguration.Settings(ILoggerSettings settings)
+   at Serilog.ConfigurationLoggerConfigurationExtensions.Configuration(LoggerSettingsConfiguration settingConfiguration, IConfiguration configuration, ConfigurationReaderOptions readerOptions)
+   at SimAgent.SDK.DependencyInjection.SharedDependencyInjection.ConfigureSerilog(LoggerConfiguration loggerConfig, IConfiguration configuration, String processName, Guid agentId) in /Users/allinrova/Desktop/SimPlatform/SimAgent/src/SimAgent.SDK/DependencyInjection/SharedDependencyInjection.cs:line 96
+   at SimAgent.Service.Program.Main(String[] args) in /Users/allinrova/Desktop/SimPlatform/SimAgent/src/SimAgent.Service/Program.cs:line 28
+   at SimAgent.Service.Program.<Main>(String[] args)
+

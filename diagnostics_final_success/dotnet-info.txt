@@ -1,0 +1,48 @@
+﻿ПАКЕТ SDK ДЛЯ .NET:
+ Version:           9.0.315
+ Commit:            11c70475d8
+ Workload version:  9.0.300-manifests.618366fb
+ MSBuild version:   17.14.43+2a0eb78b3
+
+Среда выполнения:
+ OS Name:     Windows
+ OS Version:  10.0.26200
+ OS Platform: Windows
+ RID:         win-x64
+ Base Path:   C:\Program Files\dotnet\sdk\9.0.315\
+
+Установленные рабочие нагрузки .NET:
+Нет установленных рабочих нагрузок для отображения.
+Настроено на использование loose manifests при установке новых манифестов.
+
+Host:
+  Version:      9.0.17
+  Architecture: x64
+  Commit:       f2c8152eed
+
+.NET SDKs installed:
+  6.0.201 [C:\Program Files\dotnet\sdk]
+  9.0.315 [C:\Program Files\dotnet\sdk]
+
+.NET runtimes installed:
+  Microsoft.AspNetCore.App 6.0.3 [C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App]
+  Microsoft.AspNetCore.App 9.0.17 [C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App]
+  Microsoft.NETCore.App 6.0.3 [C:\Program Files\dotnet\shared\Microsoft.NETCore.App]
+  Microsoft.NETCore.App 9.0.17 [C:\Program Files\dotnet\shared\Microsoft.NETCore.App]
+  Microsoft.WindowsDesktop.App 6.0.3 [C:\Program Files\dotnet\shared\Microsoft.WindowsDesktop.App]
+  Microsoft.WindowsDesktop.App 9.0.17 [C:\Program Files\dotnet\shared\Microsoft.WindowsDesktop.App]
+
+Other architectures found:
+  None
+
+Environment variables:
+  Not set
+
+global.json file:
+  Not found
+
+Learn more:
+  https://aka.ms/dotnet/info
+
+Download .NET:
+  https://aka.ms/dotnet/download

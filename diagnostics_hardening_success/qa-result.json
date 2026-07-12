@@ -1,0 +1,59 @@
+﻿{
+    "Success":  true,
+    "ReleaseTag":  "setup-simagent-e2e-20260711233355",
+    "SetupAssetName":  "SimBootstrap.Setup.exe",
+    "TestMode":  "real-pairing-e2e",
+    "SetupExitCode":  0,
+    "Installation":  {
+                         "ResultFileExists":  true,
+                         "Success":  true,
+                         "State":  "Completed",
+                         "Message":  "Installation completed successfully."
+                     },
+    "Service":  {
+                    "Exists":  true,
+                    "Status":  "Running",
+                    "ServiceName":  "SimAgentService",
+                    "ProcessId":  22220,
+                    "StartMode":  "Auto",
+                    "State":  "Running",
+                    "PathName":  "\"C:\\Program Files\\SimBootstrap\\Agent\\SimAgent.Service.exe\" --SimAgent:AgentSettingsPath \"C:\\ProgramData\\SimBootstrap\\config\\agentsettings.json\"",
+                    "CanonicalExecutable":  true
+                },
+    "LegacyService":  {
+                          "Exists":  false,
+                          "Status":  "Missing",
+                          "ServiceName":  "SimBootstrapAgent"
+                      },
+    "Files":  {
+                  "AgentExeExists":  true,
+                  "AgentSettingsExists":  true,
+                  "LogsDirectoryExists":  true,
+                  "ServiceLogsDirectoryExists":  false
+              },
+    "Agent":  {
+                  "Result":  "Passed",
+                  "Process":  {
+                                  "ServiceProcessId":  22220,
+                                  "Processes":  [
+                                                    {
+                                                        "Id":  22220,
+                                                        "ProcessName":  "SimAgent.Service",
+                                                        "Path":  "C:\\Program Files\\SimBootstrap\\Agent\\SimAgent.Service.exe",
+                                                        "StartTime":  "2026-07-11T23:37:23.9989677+03:00"
+                                                    }
+                                                ],
+                                  "LegacyProcesses":  [
+
+                                                      ]
+                              },
+                  "RecentLogCount":  2,
+                  "FatalStartupHits":  [
+
+                                       ],
+                  "ConfigLoaded":  true,
+                  "SecretPatternHits":  [
+
+                                        ]
+              }
+}

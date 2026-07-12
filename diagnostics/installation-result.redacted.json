@@ -1,0 +1,32 @@
+﻿{
+  "Success": false,
+  "State": "Failed",
+  "Message": "Pairing service returned an internal error.",
+  "Logs": [
+    {
+      "Timestamp": "2026-07-11T19:40:31.0478722+00:00",
+      "State": "Preparing",
+      "Message": "Preparing setup."
+    },
+    {
+      "Timestamp": "2026-07-11T19:40:31.0939502+00:00",
+      "State": "Provisioning",
+      "Message": "Running provisioning in apply mode."
+    },
+    {
+      "Timestamp": "2026-07-11T19:40:31.0949239+00:00",
+      "State": "InstallingAgent",
+      "Message": "Extracting Agent payload."
+    },
+    {
+      "Timestamp": "2026-07-11T19:40:31.1494125+00:00",
+      "State": "Preparing",
+      "Message": "Connecting to pairing service..."
+    },
+    {
+      "Timestamp": "2026-07-11T19:40:37.7759956+00:00",
+      "State": "Failed",
+      "Message": "Pairing service returned an internal error."
+    }
+  ]
+}

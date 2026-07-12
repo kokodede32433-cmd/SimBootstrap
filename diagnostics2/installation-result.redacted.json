@@ -1,0 +1,52 @@
+﻿{
+  "Success": false,
+  "State": "Failed",
+  "Message": "Service start requested. failed: [SC] StartService: \uFFFD\u8A21\uFFFD\uFFFD: 1053:\r\n\r\n\uFFFD\uFFFD\u39A1\uFFFD \uFFFD\uFFFD \uFFFD\u28A5\u2A2B\uFFFD \uFFFD\uFFFD \uFFFD\uFFFD\uFFFD\uFFFD\uFFFD \u18AE\uFFFD\uFFFD\u096C\uFFFD\uFFFD\uFFFD\uFFFD.",
+  "Logs": [
+    {
+      "Timestamp": "2026-07-11T20:12:32.7259416+00:00",
+      "State": "Preparing",
+      "Message": "Preparing setup."
+    },
+    {
+      "Timestamp": "2026-07-11T20:12:32.7616804+00:00",
+      "State": "Provisioning",
+      "Message": "Running provisioning in apply mode."
+    },
+    {
+      "Timestamp": "2026-07-11T20:12:32.7626619+00:00",
+      "State": "InstallingAgent",
+      "Message": "Extracting Agent payload."
+    },
+    {
+      "Timestamp": "2026-07-11T20:12:32.8073347+00:00",
+      "State": "Preparing",
+      "Message": "Connecting to pairing service..."
+    },
+    {
+      "Timestamp": "2026-07-11T20:12:33.6064422+00:00",
+      "State": "Preparing",
+      "Message": "Pairing successful."
+    },
+    {
+      "Timestamp": "2026-07-11T20:12:33.6067608+00:00",
+      "State": "InstallingAgent",
+      "Message": "Writing agentsettings.json."
+    },
+    {
+      "Timestamp": "2026-07-11T20:12:33.6350089+00:00",
+      "State": "ConfiguringService",
+      "Message": "Installing or updating Windows Service."
+    },
+    {
+      "Timestamp": "2026-07-11T20:12:33.728425+00:00",
+      "State": "StartingAgent",
+      "Message": "Starting Windows Service."
+    },
+    {
+      "Timestamp": "2026-07-11T20:12:35.1966012+00:00",
+      "State": "Failed",
+      "Message": "Service start requested. failed: [SC] StartService: \uFFFD\u8A21\uFFFD\uFFFD: 1053:\r\n\r\n\uFFFD\uFFFD\u39A1\uFFFD \uFFFD\uFFFD \uFFFD\u28A5\u2A2B\uFFFD \uFFFD\uFFFD \uFFFD\uFFFD\uFFFD\uFFFD\uFFFD \u18AE\uFFFD\uFFFD\u096C\uFFFD\uFFFD\uFFFD\uFFFD."
+    }
+  ]
+}
