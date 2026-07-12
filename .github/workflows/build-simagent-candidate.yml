@@ -42,11 +42,12 @@ jobs:
           "if (Test-Path 'SimAgent') { Remove-Item -Path 'SimAgent' -Recurse -Force };
           git -c core.sshCommand='ssh -o StrictHostKeyChecking=no' clone --depth 1 -b $env:SIMAGENT_COMMIT git@github.com:kokodede32433-cmd/SimAgent.git SimAgent"
 
-      - name: Publish SimAgent Service
+      - name: Publish SimAgent Service and SessionHost
         shell: cmd
         run: >
           powershell.exe -NoProfile -ExecutionPolicy Bypass -Command
-          "dotnet publish SimAgent/src/SimAgent.Service/SimAgent.Service.csproj -c Release -r win-x64 --self-contained false -o artifacts/simagent-service-win-x64"
+          "dotnet publish SimAgent/src/SimAgent.Service/SimAgent.Service.csproj -c Release -r win-x64 --self-contained false -o artifacts/simagent-service-win-x64;
+          dotnet publish SimAgent/src/SimAgent.SessionHost/SimAgent.SessionHost.csproj -c Release -r win-x64 --self-contained false -o artifacts/simagent-service-win-x64"
 
       - name: Verify publish output
         shell: cmd
@@ -54,6 +55,9 @@ jobs:
           powershell.exe -NoProfile -ExecutionPolicy Bypass -Command
           "if (-not (Test-Path 'artifacts/simagent-service-win-x64/SimAgent.Service.exe')) {
             throw 'Published SimAgent.Service payload is missing SimAgent.Service.exe.'
+          };
+          if (-not (Test-Path 'artifacts/simagent-service-win-x64/SimAgent.SessionHost.exe')) {
+            throw 'Published SimAgent.SessionHost payload is missing SimAgent.SessionHost.exe.'
           }"
 
       - name: Compress Release Archive
@@ -73,4 +77,4 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${RELEASE_TAG}" "artifacts/${ZIP_NAME}" --prerelease --title "SimAgent STOP_APPROVED_APP staging candidate" --notes "Staging-only SimAgent payload for STOP_APPROVED_APP Phase 3.2. Source commit: ${SHORT_SHA}."
+          gh release create "${RELEASE_TAG}" "artifacts/${ZIP_NAME}" --prerelease --title "SimAgent SessionHost staging candidate" --notes "Staging-only SimAgent Service + SessionHost payload. Source commit: ${SHORT_SHA}."

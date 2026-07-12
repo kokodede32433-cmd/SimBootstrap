@@ -20,7 +20,10 @@ $programFilesRoot = "C:\Program Files\SimBootstrap"
 $programDataRoot = "C:\ProgramData\SimBootstrap"
 $agentDirectory = Join-Path $programFilesRoot "Agent"
 $agentExePath = Join-Path $agentDirectory "SimAgent.Service.exe"
+$sessionHostExePath = Join-Path $agentDirectory "SimAgent.SessionHost.exe"
+$sessionHostShortcutName = "SimAgent.SessionHost.lnk"
 $agentSettingsPath = Join-Path $programDataRoot "config\agentsettings.json"
+$approvedAppsPath = Join-Path $programDataRoot "config\approved-apps.json"
 $backupRoot = Join-Path $programFilesRoot "Agent.backups"
 $runDirectory = Join-Path (Join-Path $RootDirectory "runs") $RunId
 $artifactDirectory = Join-Path $runDirectory "artifacts"
@@ -156,6 +159,7 @@ New-Directory $artifactDirectory
 $backupPath = Join-Path $backupRoot ("Agent-" + (Get-Date -Format "yyyyMMddHHmmss"))
 $rollbackAttempted = $false
 $rollbackSucceeded = $false
+$approvedAppsExistedBefore = Test-Path $approvedAppsPath
 
 $validation = [ordered]@{
     Success = $false
@@ -167,6 +171,11 @@ $validation = [ordered]@{
     ServiceAfter = $null
     LegacyServiceAfter = $null
     AgentSettingsPreserved = $false
+    ApprovedAppsPreserved = $false
+    SessionHostExecutableExists = $false
+    SessionHostStartupConfigured = $false
+    SessionHostRunning = $false
+    SessionHostInteractiveSession = $false
     AgentCountUnchanged = $false
     ServicePathPreserved = $false
     ServiceStartModePreserved = $false
@@ -187,6 +196,9 @@ try {
     }
     if (-not (Test-Path (Join-Path $PayloadDirectory "SimAgent.Service.exe"))) {
         throw "Published payload is missing SimAgent.Service.exe."
+    }
+    if (-not (Test-Path (Join-Path $PayloadDirectory "SimAgent.SessionHost.exe"))) {
+        throw "Published payload is missing SimAgent.SessionHost.exe."
     }
     $validation.PayloadExecutableExists = $true
 
@@ -211,6 +223,8 @@ try {
     New-Directory $backupRoot
     Copy-Item -Path $agentDirectory -Destination $backupPath -Recurse -Force
 
+    Get-Process -Name "SimAgent.SessionHost" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+
     if ($serviceBefore.Status -ne "Stopped") {
         Stop-Service -Name $serviceName -Force
         (Get-Service -Name $serviceName).WaitForStatus("Stopped", [TimeSpan]::FromSeconds(30))
@@ -223,6 +237,26 @@ try {
         throw "agentsettings.json disappeared during payload update."
     }
     $validation.AgentSettingsPreserved = $true
+    $validation.ApprovedAppsPreserved = (-not $approvedAppsExistedBefore) -or (Test-Path $approvedAppsPath)
+    if (-not (Test-Path $sessionHostExePath)) {
+        throw "SimAgent.SessionHost.exe is missing after payload update."
+    }
+    $validation.SessionHostExecutableExists = $true
+
+    $startupPath = [Environment]::GetFolderPath("Startup")
+    if ([string]::IsNullOrWhiteSpace($startupPath)) {
+        throw "Unable to resolve interactive user Startup folder."
+    }
+    $shortcutPath = Join-Path $startupPath $sessionHostShortcutName
+    $wsh = New-Object -ComObject WScript.Shell
+    $shortcut = $wsh.CreateShortcut($shortcutPath)
+    $shortcut.TargetPath = $sessionHostExePath
+    $shortcut.WorkingDirectory = $agentDirectory
+    $shortcut.Save()
+    $validation.SessionHostStartupConfigured = Test-Path $shortcutPath
+
+    Start-Process -FilePath $sessionHostExePath -WorkingDirectory $agentDirectory -WindowStyle Hidden
+    Start-Sleep -Seconds 5
 
     Start-Service -Name $serviceName
     (Get-Service -Name $serviceName).WaitForStatus("Running", [TimeSpan]::FromSeconds(30))
@@ -238,9 +272,18 @@ try {
     $validation.AgentCountUnchanged = $null -ne $preflightAfter -and [int]$preflightAfter.agentCount -eq [int]$preflightBefore.agentCount
     $validation.ServicePathPreserved = $serviceAfter.PathName -eq $serviceBefore.PathName
     $validation.ServiceStartModePreserved = $serviceAfter.StartMode -eq $serviceBefore.StartMode
+    $sessionHostProcesses = @(Get-Process -Name "SimAgent.SessionHost" -ErrorAction SilentlyContinue)
+    $validation.SessionHostRunning = $sessionHostProcesses.Count -gt 0
+    $validation.SessionHostInteractiveSession = @($sessionHostProcesses | Where-Object { $_.SessionId -gt 0 }).Count -gt 0
 
     if ($serviceAfter.Status -ne "Running") {
         throw "SimAgentService is not Running after update."
+    }
+    if (-not $validation.SessionHostRunning) {
+        throw "SimAgent.SessionHost is not running after update."
+    }
+    if (-not $validation.SessionHostInteractiveSession) {
+        throw "SimAgent.SessionHost is not running in an interactive session."
     }
     if ($legacyAfter.Exists) {
         throw "Legacy SimBootstrapAgent service exists after update."
