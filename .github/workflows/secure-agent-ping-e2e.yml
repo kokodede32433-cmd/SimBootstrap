@@ -2,6 +2,15 @@ name: Secure Agent PING E2E
 
 on:
   workflow_dispatch:
+    inputs:
+      command:
+        description: "Fixed staging command to verify"
+        required: false
+        default: "PING"
+        type: choice
+        options:
+          - PING
+          - GET_SIM_STATUS
 
 jobs:
   secure-ping:
@@ -19,8 +28,13 @@ jobs:
           SIMCRM_STAGING_SUPABASE_URL: ${{ secrets.SIMCRM_STAGING_SUPABASE_URL }}
           SIMCRM_STAGING_SUPABASE_ANON_KEY: ${{ secrets.SIMCRM_STAGING_SUPABASE_ANON_KEY }}
           SIMCRM_STAGING_PAIR_CODE_TOKEN: ${{ secrets.SIMCRM_STAGING_PAIR_CODE_TOKEN }}
+          E2E_COMMAND_TYPE: ${{ inputs.command || 'PING' }}
         run: |
           $ErrorActionPreference = "Stop"
+          $expectedCommandType = $env:E2E_COMMAND_TYPE
+          if ($expectedCommandType -notin @("PING", "GET_SIM_STATUS")) {
+            throw "Unsupported workflow command input."
+          }
 
           foreach ($name in @(
             "SIMCRM_STAGING_SUPABASE_URL",
@@ -81,12 +95,16 @@ jobs:
           }
 
           $agentCountBefore = [int]$preflight.agentCount
-          $create = Invoke-E2ECommandIssuer @{ action = "create" }
+          $createAction = if ($expectedCommandType -eq "GET_SIM_STATUS") { "create_get_sim_status" } else { "create" }
+          $create = Invoke-E2ECommandIssuer @{ action = $createAction }
           if ([string]::IsNullOrWhiteSpace($create.commandId)) {
             throw "Command issuer did not return a commandId."
           }
+          if ($create.commandType -ne $expectedCommandType) {
+            throw "Command issuer returned unexpected command type."
+          }
           Write-Host "::add-mask::$($create.commandId)"
-          Write-Host "Created one secured PING command."
+          Write-Host "Created one secured $expectedCommandType command."
 
           $deadline = (Get-Date).AddMinutes(4)
           $final = $null
@@ -103,17 +121,53 @@ jobs:
             throw "Timed out waiting for PING completion."
           }
 
-          if ($final.commandType -ne "PING") {
+          if ($final.commandType -ne $expectedCommandType) {
             throw "Unexpected command type."
           }
           if ($final.status -ne "succeeded") {
-            throw "PING did not succeed. Status: $($final.status)"
+            throw "$expectedCommandType did not succeed. Status: $($final.status)"
           }
-          if ($final.result.message -ne "pong") {
+          if ($expectedCommandType -eq "PING" -and $final.result.message -ne "pong") {
             throw "PING result was not pong."
           }
+          if ($expectedCommandType -eq "GET_SIM_STATUS") {
+            if ($final.result.status -ne "succeeded") {
+              throw "GET_SIM_STATUS result status was not succeeded."
+            }
+            if ([string]::IsNullOrWhiteSpace($final.result.agentTimestamp)) {
+              throw "GET_SIM_STATUS did not include agentTimestamp."
+            }
+            if ($final.result.PSObject.Properties.Name -notcontains "applications") {
+              throw "GET_SIM_STATUS did not include applications."
+            }
+            $allowedIds = @(
+              "assetto_corsa",
+              "assetto_corsa_competizione",
+              "f1",
+              "iracing",
+              "content_manager",
+              "simhub",
+              "simpro_manager",
+              "simagic_manager"
+            )
+            foreach ($app in @($final.result.applications)) {
+              if ($allowedIds -notcontains $app.id) {
+                throw "GET_SIM_STATUS returned non-allowlisted application id."
+              }
+              if ($app.PSObject.Properties.Name -contains "processName" -or
+                  $app.PSObject.Properties.Name -contains "path" -or
+                  $app.PSObject.Properties.Name -contains "commandLine" -or
+                  $app.PSObject.Properties.Name -contains "username" -or
+                  $app.PSObject.Properties.Name -contains "windowTitle") {
+                throw "GET_SIM_STATUS returned sensitive process detail."
+              }
+            }
+            if (-not [string]::IsNullOrWhiteSpace($final.result.activeSimulator) -and $allowedIds -notcontains $final.result.activeSimulator) {
+              throw "GET_SIM_STATUS returned non-allowlisted active simulator."
+            }
+          }
           if ([int]$final.attemptCount -ne 1) {
-            throw "PING attempt_count was $($final.attemptCount), expected 1."
+            throw "$expectedCommandType attempt_count was $($final.attemptCount), expected 1."
           }
           if ([int]$final.agentCount -ne $agentCountBefore) {
             throw "Agent count changed from $agentCountBefore to $($final.agentCount)."
@@ -125,4 +179,4 @@ jobs:
             throw "Unsafe test RPC contract became executable."
           }
 
-          Write-Host "Secure PING E2E passed."
+          Write-Host "Secure $expectedCommandType E2E passed."
