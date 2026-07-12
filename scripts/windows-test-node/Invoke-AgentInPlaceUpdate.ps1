@@ -104,6 +104,55 @@ function Test-IsAdministrator {
     return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
+function Get-InteractiveUserContext {
+    $explorerProcesses = @(
+        Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" -ErrorAction SilentlyContinue |
+            Where-Object { $_.SessionId -gt 0 }
+    )
+
+    foreach ($process in $explorerProcesses) {
+        $owner = Invoke-CimMethod -InputObject $process -MethodName GetOwner -ErrorAction SilentlyContinue
+        $ownerSid = Invoke-CimMethod -InputObject $process -MethodName GetOwnerSid -ErrorAction SilentlyContinue
+        if ($null -eq $owner -or [string]::IsNullOrWhiteSpace($owner.User) -or $null -eq $ownerSid -or [string]::IsNullOrWhiteSpace($ownerSid.Sid)) {
+            continue
+        }
+
+        $profile = Get-CimInstance Win32_UserProfile -Filter "SID='$($ownerSid.Sid)'" -ErrorAction SilentlyContinue
+        if ($null -eq $profile -or [string]::IsNullOrWhiteSpace($profile.LocalPath) -or -not (Test-Path $profile.LocalPath)) {
+            continue
+        }
+
+        $qualifiedUser = if ([string]::IsNullOrWhiteSpace($owner.Domain)) {
+            $owner.User
+        } else {
+            "$($owner.Domain)\$($owner.User)"
+        }
+
+        return [ordered]@{
+            UserName = $qualifiedUser
+            ProfilePath = $profile.LocalPath
+        }
+    }
+
+    return $null
+}
+
+function Start-SessionHostForInteractiveUser {
+    param(
+        [Parameter(Mandatory = $true)] [string] $UserName
+    )
+
+    $taskName = "SimAgentSessionHostStart"
+    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+
+    $action = New-ScheduledTaskAction -Execute $sessionHostExePath -WorkingDirectory $agentDirectory
+    $trigger = New-ScheduledTaskTrigger -Once -At ((Get-Date).AddMinutes(1))
+    $principal = New-ScheduledTaskPrincipal -UserId $UserName -LogonType Interactive -RunLevel LeastPrivilege
+    $task = New-ScheduledTask -Action $action -Trigger $trigger -Principal $principal
+    Register-ScheduledTask -TaskName $taskName -InputObject $task -Force | Out-Null
+    Start-ScheduledTask -TaskName $taskName
+}
+
 function Invoke-E2ECommandIssuer {
     param([hashtable] $Body)
 
@@ -266,10 +315,12 @@ try {
     }
     $validation.SessionHostExecutableExists = $true
 
-    $startupPath = [Environment]::GetFolderPath("Startup")
-    if ([string]::IsNullOrWhiteSpace($startupPath)) {
-        throw "Unable to resolve interactive user Startup folder."
+    $interactiveUser = Get-InteractiveUserContext
+    if ($null -eq $interactiveUser) {
+        throw "Unable to resolve logged-in interactive user."
     }
+    $startupPath = Join-Path $interactiveUser.ProfilePath "AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup"
+    New-Directory $startupPath
     $shortcutPath = Join-Path $startupPath $sessionHostShortcutName
     $wsh = New-Object -ComObject WScript.Shell
     $shortcut = $wsh.CreateShortcut($shortcutPath)
@@ -278,7 +329,7 @@ try {
     $shortcut.Save()
     $validation.SessionHostStartupConfigured = Test-Path $shortcutPath
 
-    Start-Process -FilePath $sessionHostExePath -WorkingDirectory $agentDirectory -WindowStyle Hidden
+    Start-SessionHostForInteractiveUser $interactiveUser.UserName
     Start-Sleep -Seconds 5
 
     Start-Service -Name $serviceName
