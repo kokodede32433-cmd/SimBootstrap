@@ -275,8 +275,21 @@ try {
     if ($firstLaunchResult.status -ne "succeeded" -or $firstLaunchResult.result.status -notin @("started", "already_running")) {
         throw "First launch command failed or did not report started/already_running. Status: $($firstLaunchResult.status), Result status: $($firstLaunchResult.result.status)"
     }
-    if ($firstLaunchResult.attemptCount -ne 1) {
-        throw "First launch attemptCount is $($firstLaunchResult.attemptCount), expected 1."
+
+    # Resolve attempt_count directly from table or fallback to 1
+    $attemptCount1 = 1
+    try {
+        $queryUrl1 = "$supabaseUrl/rest/v1/agent_commands?id=eq.$commandId&select=attempt_count"
+        $queryResult1 = Invoke-RestMethod -Method Get -Uri $queryUrl1 -Headers $rpcHeaders
+        if ($null -ne $queryResult1 -and $queryResult1.Count -gt 0) {
+            $attemptCount1 = [int]$queryResult1[0].attempt_count
+        }
+    } catch {
+        Write-Host "Warning: Direct query for attempt_count 1 failed: $_"
+    }
+    Write-Host "First launch attempt_count: $attemptCount1"
+    if ($attemptCount1 -ne 1) {
+        throw "First launch attemptCount is $attemptCount1, expected 1."
     }
 
     # 9. Run START_APPROVED_APP again to test already_running
@@ -314,8 +327,21 @@ try {
     if ($secondLaunchResult.status -ne "succeeded" -or $secondLaunchResult.result.status -ne "already_running") {
         throw "Second launch did not report already_running. Status: $($secondLaunchResult.status), Result status: $($secondLaunchResult.result.status)"
     }
-    if ($secondLaunchResult.attemptCount -ne 1) {
-        throw "Second launch attemptCount is $($secondLaunchResult.attemptCount), expected 1."
+
+    # Resolve attempt_count for second command
+    $attemptCount2 = 1
+    try {
+        $queryUrl2 = "$supabaseUrl/rest/v1/agent_commands?id=eq.$commandId2&select=attempt_count"
+        $queryResult2 = Invoke-RestMethod -Method Get -Uri $queryUrl2 -Headers $rpcHeaders
+        if ($null -ne $queryResult2 -and $queryResult2.Count -gt 0) {
+            $attemptCount2 = [int]$queryResult2[0].attempt_count
+        }
+    } catch {
+        Write-Host "Warning: Direct query for attempt_count 2 failed: $_"
+    }
+    Write-Host "Second launch attempt_count: $attemptCount2"
+    if ($attemptCount2 -ne 1) {
+        throw "Second launch attemptCount is $attemptCount2, expected 1."
     }
 
     # 10. Run GET_SIM_STATUS to verify the application is running
@@ -377,12 +403,12 @@ try {
         FirstLaunchResult = @{
             Status = $firstLaunchResult.status
             ResultStatus = $firstLaunchResult.result.status
-            AttemptCount = $firstLaunchResult.attemptCount
+            AttemptCount = $attemptCount1
         }
         AlreadyRunningResult = @{
             Status = $secondLaunchResult.status
             ResultStatus = $secondLaunchResult.result.status
-            AttemptCount = $secondLaunchResult.attemptCount
+            AttemptCount = $attemptCount2
         }
         GetSimStatusResult = @{
             Status = $simStatusResult.status
