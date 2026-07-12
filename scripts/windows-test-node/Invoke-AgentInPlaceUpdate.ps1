@@ -153,6 +153,51 @@ function Start-SessionHostForInteractiveUser {
     Start-ScheduledTask -TaskName $taskName
 }
 
+function Test-SessionHostCommandPipe {
+    param([string] $PipeName = "SimAgentSessionHostCommands")
+
+    try {
+        $client = [System.IO.Pipes.NamedPipeClientStream]::new(
+            ".",
+            $PipeName,
+            [System.IO.Pipes.PipeDirection]::InOut,
+            [System.IO.Pipes.PipeOptions]::WriteThrough,
+            [System.Security.Principal.TokenImpersonationLevel]::Identification)
+        try {
+            $client.Connect(3000)
+            $client.ReadMode = [System.IO.Pipes.PipeTransmissionMode]::Message
+            $request = [ordered]@{
+                RequestId = [guid]::NewGuid()
+                Method = "GET_SESSION_STATUS"
+                ParametersJson = "{}"
+                TimestampUtc = (Get-Date).ToUniversalTime().ToString("o")
+            } | ConvertTo-Json -Compress
+            $bytes = [System.Text.Encoding]::UTF8.GetBytes($request)
+            $client.Write($bytes, 0, $bytes.Length)
+            $client.Flush()
+
+            $buffer = New-Object byte[] 65536
+            $ms = New-Object System.IO.MemoryStream
+            do {
+                $read = $client.Read($buffer, 0, $buffer.Length)
+                if ($read -le 0) { break }
+                $ms.Write($buffer, 0, $read)
+            } while (-not $client.IsMessageComplete)
+
+            $responseJson = [System.Text.Encoding]::UTF8.GetString($ms.ToArray())
+            if ([string]::IsNullOrWhiteSpace($responseJson)) {
+                return $false
+            }
+            $response = $responseJson | ConvertFrom-Json
+            return $response.Success -eq $true
+        } finally {
+            $client.Dispose()
+        }
+    } catch {
+        return $false
+    }
+}
+
 function Invoke-E2ECommandIssuer {
     param([hashtable] $Body)
 
@@ -229,6 +274,7 @@ $validation = [ordered]@{
     SessionHostStartupConfigured = $false
     SessionHostRunning = $false
     SessionHostInteractiveSession = $false
+    SessionHostPipeAvailable = $false
     AgentCountUnchanged = $false
     ServicePathPreserved = $false
     ServiceStartModePreserved = $false
@@ -349,6 +395,7 @@ try {
     $sessionHostProcesses = @(Get-Process -Name "SimAgent.SessionHost" -ErrorAction SilentlyContinue)
     $validation.SessionHostRunning = $sessionHostProcesses.Count -gt 0
     $validation.SessionHostInteractiveSession = @($sessionHostProcesses | Where-Object { $_.SessionId -gt 0 }).Count -gt 0
+    $validation.SessionHostPipeAvailable = Test-SessionHostCommandPipe
 
     if ($serviceAfter.Status -ne "Running") {
         throw "SimAgentService is not Running after update."
@@ -358,6 +405,9 @@ try {
     }
     if (-not $validation.SessionHostInteractiveSession) {
         throw "SimAgent.SessionHost is not running in an interactive session."
+    }
+    if (-not $validation.SessionHostPipeAvailable) {
+        throw "SimAgent.SessionHost command pipe is not available."
     }
     if ($legacyAfter.Exists) {
         throw "Legacy SimBootstrapAgent service exists after update."
