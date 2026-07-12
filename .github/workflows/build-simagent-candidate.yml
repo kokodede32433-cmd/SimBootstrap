@@ -1,6 +1,9 @@
 name: Build SimAgent Candidate
 
 on:
+  push:
+    branches:
+      - feature/one-click-setup
   workflow_dispatch:
     inputs:
       simagent_commit:
@@ -17,6 +20,10 @@ on:
 permissions:
   contents: write
 
+env:
+  SIMAGENT_COMMIT: ${{ inputs.simagent_commit || 'codex/start-approved-app-phase3' }}
+  RELEASE_TAG: ${{ inputs.release_tag || 'simagent-stop-approved-app-staging-20260712' }}
+
 jobs:
   build:
     runs-on: windows-latest
@@ -28,7 +35,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: kokodede32433-cmd/SimAgent
-          ref: ${{ inputs.simagent_commit }}
+          ref: ${{ env.SIMAGENT_COMMIT }}
           path: SimAgent
 
       - name: Setup .NET
@@ -64,4 +71,4 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ inputs.release_tag }}" "artifacts/${ZIP_NAME}" --prerelease --title "SimAgent STOP_APPROVED_APP staging candidate" --notes "Staging-only SimAgent payload for STOP_APPROVED_APP Phase 3.2. Source commit: ${SHORT_SHA}."
+          gh release create "${RELEASE_TAG}" "artifacts/${ZIP_NAME}" --prerelease --title "SimAgent STOP_APPROVED_APP staging candidate" --notes "Staging-only SimAgent payload for STOP_APPROVED_APP Phase 3.2. Source commit: ${SHORT_SHA}."
