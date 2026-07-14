@@ -35,17 +35,13 @@ jobs:
       - name: Checkout SimBootstrap
         uses: actions/checkout@v4
 
-      - name: Checkout SimAgent via native Git
-        shell: cmd
-        run: >
-          powershell.exe -NoProfile -ExecutionPolicy Bypass -Command
-          "if (Test-Path 'SimAgent') { Remove-Item -Path 'SimAgent' -Recurse -Force };
-          New-Item -ItemType Directory -Path 'SimAgent' | Out-Null;
-          cd SimAgent;
-          git init;
-          git remote add origin https://github.com/kokodede32433-cmd/SimAgent.git;
-          git fetch --depth 1 origin $env:SIMAGENT_COMMIT;
-          git checkout --detach FETCH_HEAD"
+      - name: Checkout SimAgent
+        uses: actions/checkout@v4
+        with:
+          repository: kokodede32433-cmd/SimAgent
+          ref: ${{ env.SIMAGENT_COMMIT }}
+          path: SimAgent
+          persist-credentials: false
 
       - name: Publish SimAgent Service and SessionHost
         shell: cmd
