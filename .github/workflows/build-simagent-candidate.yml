@@ -40,7 +40,12 @@ jobs:
         run: >
           powershell.exe -NoProfile -ExecutionPolicy Bypass -Command
           "if (Test-Path 'SimAgent') { Remove-Item -Path 'SimAgent' -Recurse -Force };
-          git -c core.sshCommand='ssh -o StrictHostKeyChecking=no' clone --depth 1 -b $env:SIMAGENT_COMMIT git@github.com:kokodede32433-cmd/SimAgent.git SimAgent"
+          New-Item -ItemType Directory -Path 'SimAgent' | Out-Null;
+          cd SimAgent;
+          git init;
+          git remote add origin https://github.com/kokodede32433-cmd/SimAgent.git;
+          git fetch --depth 1 origin $env:SIMAGENT_COMMIT;
+          git checkout --detach FETCH_HEAD"
 
       - name: Publish SimAgent Service and SessionHost
         shell: cmd
