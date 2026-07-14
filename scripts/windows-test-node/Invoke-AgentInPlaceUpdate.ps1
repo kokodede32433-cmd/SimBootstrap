@@ -145,7 +145,7 @@ function Start-SessionHostForInteractiveUser {
     $taskName = "SimAgentSessionHostStart"
     Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
 
-    $action = New-ScheduledTaskAction -Execute $sessionHostExePath -WorkingDirectory $agentDirectory
+    $action = New-ScheduledTaskAction -Execute $sessionHostExePath -WorkingDirectory $sessionHostDirectory
     $trigger = New-ScheduledTaskTrigger -Once -At ((Get-Date).AddMinutes(1))
     $principal = New-ScheduledTaskPrincipal -UserId $UserName -LogonType Interactive -RunLevel Limited
     $task = New-ScheduledTask -Action $action -Trigger $trigger -Principal $principal
@@ -200,6 +200,21 @@ function Test-SessionHostCommandPipe {
     } catch {
         return $false
     }
+}
+
+function Wait-ForSessionHostCommandPipe {
+    param(
+        [TimeSpan] $Timeout = [TimeSpan]::FromSeconds(45)
+    )
+
+    $deadline = (Get-Date).Add($Timeout)
+    while ((Get-Date) -lt $deadline) {
+        if (Test-SessionHostCommandPipe) {
+            return $true
+        }
+        Start-Sleep -Seconds 2
+    }
+    return $false
 }
 
 function Invoke-E2ECommandIssuer {
@@ -390,7 +405,7 @@ try {
     $wsh = New-Object -ComObject WScript.Shell
     $shortcut = $wsh.CreateShortcut($shortcutPath)
     $shortcut.TargetPath = $sessionHostExePath
-    $shortcut.WorkingDirectory = $agentDirectory
+    $shortcut.WorkingDirectory = $sessionHostDirectory
     $shortcut.Save()
     $validation.SessionHostStartupConfigured = Test-Path $shortcutPath
 
@@ -414,7 +429,7 @@ try {
     $sessionHostProcesses = @(Get-Process -Name "SimAgent.SessionHost" -ErrorAction SilentlyContinue)
     $validation.SessionHostRunning = $sessionHostProcesses.Count -gt 0
     $validation.SessionHostInteractiveSession = @($sessionHostProcesses | Where-Object { $_.SessionId -gt 0 }).Count -gt 0
-    $validation.SessionHostPipeAvailable = Test-SessionHostCommandPipe
+    $validation.SessionHostPipeAvailable = Wait-ForSessionHostCommandPipe
 
     if ($serviceAfter.Status -ne "Running") {
         throw "SimAgentService is not Running after update."
@@ -463,6 +478,7 @@ try {
     $recentLogs = @(
         Get-ChildItem -Path (Join-Path $programDataRoot "logs") -File -ErrorAction SilentlyContinue
         Get-ChildItem -Path (Join-Path $agentDirectory "logs") -File -ErrorAction SilentlyContinue
+        Get-ChildItem -Path (Join-Path $sessionHostDirectory "logs") -File -ErrorAction SilentlyContinue
     ) | Where-Object { $_.LastWriteTime -gt (Get-Date).AddMinutes(-15) } | Select-Object -First 10
     foreach ($log in $recentLogs) {
         $destination = Join-Path $artifactDirectory ("logs\" + $log.Name + ".redacted.txt")
