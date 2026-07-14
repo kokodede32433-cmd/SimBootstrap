@@ -170,7 +170,10 @@ function Test-SessionHostCommandPipe {
             $request = [ordered]@{
                 RequestId = [guid]::NewGuid()
                 Method = "GET_SESSION_STATUS"
-                ParametersJson = "{}"
+                ParametersJson = (@{
+                    protocolVersion = "1.0"
+                    applicationId = $null
+                } | ConvertTo-Json -Compress)
                 TimestampUtc = (Get-Date).ToUniversalTime().ToString("o")
             } | ConvertTo-Json -Compress
             $bytes = [System.Text.Encoding]::UTF8.GetBytes($request)
