@@ -17,6 +17,7 @@ $approvedAppsPath = Join-Path $programDataRoot "config\approved-apps.json"
 $runDirectory = Join-Path (Join-Path $RootDirectory "runs") $RunId
 $artifactDirectory = Join-Path $runDirectory "artifacts"
 $validationReportPath = Join-Path $artifactDirectory "qa-result.json"
+$script:LastAclResult = $null
 
 function New-Directory {
     param([string] $Path)
@@ -346,6 +347,7 @@ try {
         UsersBroadAccess = (Test-PrincipalHasBroadAccess -Acl $acl -Identity $usersUser)
         MinimalCorrectionApplied = $aclChanged
     }
+    $script:LastAclResult = $aclResult
     if (-not $aclResult.LocalSystemRead -or
         -not $aclResult.AdministratorsRead -or
         -not $aclResult.InteractiveUserReadOnly -or
@@ -590,6 +592,7 @@ try {
         Success = $false
         Stage = "APPROVED_APP_LIFECYCLE"
         ErrorCode = "$_"
+        ApprovedAppsAclResult = $script:LastAclResult
     }
     New-Directory $artifactDirectory
     Write-JsonFile $failureReport $validationReportPath
