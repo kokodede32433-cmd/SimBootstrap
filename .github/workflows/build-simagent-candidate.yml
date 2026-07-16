@@ -78,8 +78,9 @@ jobs:
           Add-Content -Path $env:GITHUB_ENV -Value ('SHORT_SHA=' + $sha)"
 
       - name: Create GitHub Release
-        shell: bash
+        shell: cmd
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release create "${RELEASE_TAG}" "artifacts/${ZIP_NAME}" --prerelease --title "SimAgent SessionHost staging candidate" --notes "Staging-only SimAgent Service + SessionHost payload. Source commit: ${SHORT_SHA}."
+        run: >
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -Command
+          "gh release create $env:RELEASE_TAG ('artifacts/' + $env:ZIP_NAME) --prerelease --title 'SimAgent SessionHost staging candidate' --notes ('Staging-only SimAgent Service + SessionHost payload. Source commit: ' + $env:SHORT_SHA + '.')"
