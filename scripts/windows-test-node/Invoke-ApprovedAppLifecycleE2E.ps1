@@ -83,7 +83,13 @@ function Test-RuleAllowsBroadWrite {
     $rights = [System.Security.AccessControl.FileSystemRights] $Rule.FileSystemRights
     return (($rights -band [System.Security.AccessControl.FileSystemRights]::FullControl) -ne 0) -or
         (($rights -band [System.Security.AccessControl.FileSystemRights]::Modify) -ne 0) -or
-        (($rights -band [System.Security.AccessControl.FileSystemRights]::Write) -ne 0)
+        (($rights -band [System.Security.AccessControl.FileSystemRights]::WriteData) -ne 0) -or
+        (($rights -band [System.Security.AccessControl.FileSystemRights]::AppendData) -ne 0) -or
+        (($rights -band [System.Security.AccessControl.FileSystemRights]::WriteExtendedAttributes) -ne 0) -or
+        (($rights -band [System.Security.AccessControl.FileSystemRights]::WriteAttributes) -ne 0) -or
+        (($rights -band [System.Security.AccessControl.FileSystemRights]::Delete) -ne 0) -or
+        (($rights -band [System.Security.AccessControl.FileSystemRights]::ChangePermissions) -ne 0) -or
+        (($rights -band [System.Security.AccessControl.FileSystemRights]::TakeOwnership) -ne 0)
 }
 
 function Test-PrincipalHasRead {
