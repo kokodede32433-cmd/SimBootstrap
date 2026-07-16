@@ -27,6 +27,7 @@ $agentSettingsPath = Join-Path $programDataRoot "config\agentsettings.json"
 $approvedAppsPath = Join-Path $programDataRoot "config\approved-apps.json"
 $backupRoot = Join-Path $programFilesRoot "Agent.backups"
 $sessionHostBackupRoot = Join-Path $programFilesRoot "SessionHost.backups"
+$manifestFileName = "version-manifest.json"
 $runDirectory = Join-Path (Join-Path $RootDirectory "runs") $RunId
 $artifactDirectory = Join-Path $runDirectory "artifacts"
 $validationReportPath = Join-Path $artifactDirectory "qa-result.json"
@@ -74,6 +75,78 @@ function Assert-RequiredSecret {
     }
 }
 
+function Get-SafeVersionInfo {
+    param([string] $Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path $Path)) {
+        return [ordered]@{ Exists = $false; Commit = $null; ProductVersion = $null }
+    }
+
+    try {
+        $info = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($Path)
+        $commit = $null
+        if ($info.ProductVersion -match "\+([0-9a-fA-F]{40})") {
+            $commit = $matches[1].ToLowerInvariant()
+        }
+        return [ordered]@{
+            Exists = $true
+            Commit = $commit
+            ProductVersion = $info.ProductVersion
+        }
+    } catch {
+        return [ordered]@{ Exists = $true; Commit = $null; ProductVersion = $null }
+    }
+}
+
+function Test-SharedAssemblies {
+    param([string] $Directory)
+
+    $required = @(
+        "SimAgent.Abstractions.dll",
+        "SimAgent.Contracts.dll",
+        "SimAgent.Protocol.dll",
+        "SimAgent.SDK.dll",
+        "SimAgent.Shared.dll",
+        "SimAgent.Windows.dll"
+    )
+
+    foreach ($name in $required) {
+        if (-not (Test-Path (Join-Path $Directory $name))) {
+            return $false
+        }
+    }
+    return $true
+}
+
+function Get-PackageManifestCommit {
+    param([string] $ManifestPath)
+
+    if (-not (Test-Path $ManifestPath)) {
+        return $null
+    }
+    $manifest = Get-Content -Path $ManifestPath -Raw | ConvertFrom-Json
+    if ($manifest.sourceCommit) {
+        return ([string]$manifest.sourceCommit).ToLowerInvariant()
+    }
+    return $null
+}
+
+function Write-VersionManifest {
+    param(
+        [Parameter(Mandatory = $true)] [string] $Directory,
+        [Parameter(Mandatory = $true)] [string] $Commit,
+        [Parameter(Mandatory = $true)] [string] $ProductVersion
+    )
+
+    [ordered]@{
+        sourceCommit = $Commit
+        version = $ProductVersion
+        packageKind = "SimAgent.Service+SessionHost"
+        createdUtc = (Get-Date).ToUniversalTime().ToString("o")
+        includes = @("Agent","SessionHost")
+    } | ConvertTo-Json -Depth 4 | Set-Content -Path (Join-Path $Directory $manifestFileName) -Encoding UTF8
+}
+
 function Get-ServiceSnapshot {
     param([string] $Name = $serviceName)
 
@@ -91,10 +164,9 @@ function Get-ServiceSnapshot {
         Exists = $true
         Status = $service.Status.ToString()
         ServiceName = $Name
-        ProcessId = if ($wmiService) { $wmiService.ProcessId } else { $null }
         StartMode = if ($wmiService) { $wmiService.StartMode } else { $null }
         State = if ($wmiService) { $wmiService.State } else { $null }
-        PathName = if ($wmiService) { $wmiService.PathName } else { $null }
+        CanonicalExecutable = if ($wmiService) { ($wmiService.PathName -like "*SimAgent.Service.exe*" -and $wmiService.PathName -like "*--SimAgent:AgentSettingsPath*") } else { $false }
     }
 }
 
@@ -156,6 +228,15 @@ function Start-SessionHostForInteractiveUser {
 function Test-SessionHostCommandPipe {
     param([string] $PipeName = "SimAgentSessionHostCommands")
 
+    $result = [ordered]@{
+        Context = "Runner"
+        CanConnect = $false
+        ResponseReceived = $false
+        Success = $false
+        ProtocolAccepted = $false
+        SafeErrorCode = $null
+    }
+
     try {
         $client = [System.IO.Pipes.NamedPipeClientStream]::new(
             ".",
@@ -165,6 +246,7 @@ function Test-SessionHostCommandPipe {
             [System.Security.Principal.TokenImpersonationLevel]::Identification)
         try {
             $client.Connect(3000)
+            $result.CanConnect = $true
             $client.ReadMode = [System.IO.Pipes.PipeTransmissionMode]::Message
             $client.ReadTimeout = 3000
             $request = [ordered]@{
@@ -190,15 +272,95 @@ function Test-SessionHostCommandPipe {
 
             $responseJson = [System.Text.Encoding]::UTF8.GetString($ms.ToArray())
             if ([string]::IsNullOrWhiteSpace($responseJson)) {
-                return $false
+                $result.SafeErrorCode = "PIPE_SERVER_NOT_LISTENING"
+                return $result
             }
             $response = $responseJson | ConvertFrom-Json
-            return $response.Success -eq $true
+            $result.ResponseReceived = $true
+            $result.Success = $response.Success -eq $true
+            $result.ProtocolAccepted = $response.ErrorMessage -ne "SESSION_HOST_PROTOCOL_MISMATCH"
+            if (-not $result.Success) {
+                $result.SafeErrorCode = if ($response.ErrorMessage) { [string]$response.ErrorMessage } else { "PIPE_RESPONSE_FAILED" }
+            }
+            return $result
         } finally {
             $client.Dispose()
         }
+    } catch [System.TimeoutException] {
+        $result.SafeErrorCode = "SESSION_HOST_TIMEOUT"
     } catch {
-        return $false
+        $result.SafeErrorCode = "SESSION_HOST_UNAVAILABLE"
+    }
+    return $result
+}
+
+function Invoke-SystemPipeProbe {
+    $taskName = "SimAgentInPlaceSystemPipeProbe"
+    $probeScript = Join-Path $artifactDirectory "$taskName.ps1"
+    $probeOutput = Join-Path $artifactDirectory "$taskName.json"
+    $probeCode = @"
+`$ErrorActionPreference = "Stop"
+`$result = [ordered]@{ Context = "System"; CanConnect = `$false; ResponseReceived = `$false; Success = `$false; ProtocolAccepted = `$false; SafeErrorCode = `$null }
+try {
+    `$client = [System.IO.Pipes.NamedPipeClientStream]::new(".", "SimAgentSessionHostCommands", [System.IO.Pipes.PipeDirection]::InOut, [System.IO.Pipes.PipeOptions]::WriteThrough, [System.Security.Principal.TokenImpersonationLevel]::Identification)
+    try {
+        `$client.Connect(3000)
+        `$result.CanConnect = `$true
+        `$client.ReadMode = [System.IO.Pipes.PipeTransmissionMode]::Message
+        `$client.ReadTimeout = 3000
+        `$request = [ordered]@{ RequestId = [guid]::NewGuid(); Method = "GET_SESSION_STATUS"; ParametersJson = (@{ protocolVersion = "1.0"; applicationId = `$null } | ConvertTo-Json -Compress); TimestampUtc = (Get-Date).ToUniversalTime().ToString("o") } | ConvertTo-Json -Compress
+        `$bytes = [System.Text.Encoding]::UTF8.GetBytes(`$request)
+        `$client.Write(`$bytes, 0, `$bytes.Length)
+        `$client.Flush()
+        `$buffer = New-Object byte[] 65536
+        `$ms = New-Object System.IO.MemoryStream
+        do {
+            `$read = `$client.Read(`$buffer, 0, `$buffer.Length)
+            if (`$read -le 0) { break }
+            `$ms.Write(`$buffer, 0, `$read)
+        } while (-not `$client.IsMessageComplete)
+        `$responseJson = [System.Text.Encoding]::UTF8.GetString(`$ms.ToArray())
+        if ([string]::IsNullOrWhiteSpace(`$responseJson)) {
+            `$result.SafeErrorCode = "PIPE_SERVER_NOT_LISTENING"
+        } else {
+            `$result.ResponseReceived = `$true
+            `$response = `$responseJson | ConvertFrom-Json
+            `$result.Success = `$response.Success -eq `$true
+            `$result.ProtocolAccepted = `$response.ErrorMessage -ne "SESSION_HOST_PROTOCOL_MISMATCH"
+            if (-not `$result.Success) { `$result.SafeErrorCode = if (`$response.ErrorMessage) { [string]`$response.ErrorMessage } else { "PIPE_RESPONSE_FAILED" } }
+        }
+    } finally {
+        `$client.Dispose()
+    }
+} catch [System.TimeoutException] {
+    `$result.SafeErrorCode = "SESSION_HOST_TIMEOUT"
+} catch {
+    `$result.SafeErrorCode = "SESSION_HOST_UNAVAILABLE"
+}
+`$result | ConvertTo-Json -Depth 8 | Set-Content -Path "$probeOutput" -Encoding UTF8
+"@
+    $probeCode | Set-Content -Path $probeScript -Encoding UTF8
+    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+    try {
+        $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$probeScript`""
+        $trigger = New-ScheduledTaskTrigger -Once -At ((Get-Date).AddMinutes(1))
+        $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+        $task = New-ScheduledTask -Action $action -Trigger $trigger -Principal $principal
+        Register-ScheduledTask -TaskName $taskName -InputObject $task -Force | Out-Null
+        Start-ScheduledTask -TaskName $taskName
+        $deadline = (Get-Date).AddSeconds(20)
+        while ((Get-Date) -lt $deadline) {
+            if (Test-Path $probeOutput) {
+                return Get-Content -Path $probeOutput -Raw | ConvertFrom-Json
+            }
+            Start-Sleep -Milliseconds 500
+        }
+        return [ordered]@{ Context = "System"; CanConnect = $false; ResponseReceived = $false; Success = $false; ProtocolAccepted = $false; SafeErrorCode = "PIPE_PROBE_TIMEOUT" }
+    } catch {
+        return [ordered]@{ Context = "System"; CanConnect = $false; ResponseReceived = $false; Success = $false; ProtocolAccepted = $false; SafeErrorCode = "PIPE_PROBE_FAILED" }
+    } finally {
+        Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+        Remove-Item -Path $probeScript -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -208,13 +370,15 @@ function Wait-ForSessionHostCommandPipe {
     )
 
     $deadline = (Get-Date).Add($Timeout)
+    $last = $null
     while ((Get-Date) -lt $deadline) {
-        if (Test-SessionHostCommandPipe) {
-            return $true
+        $last = Test-SessionHostCommandPipe
+        if ($last.Success) {
+            return $last
         }
         Start-Sleep -Seconds 2
     }
-    return $false
+    return $last
 }
 
 function Invoke-E2ECommandIssuer {
@@ -249,6 +413,84 @@ function Wait-ForAgentOnline {
     return $last
 }
 
+function Invoke-SecureCommandSmoke {
+    param([ValidateSet("PING", "GET_SIM_STATUS")] [string] $CommandType)
+
+    $preflight = Invoke-E2ECommandIssuer @{ action = "preflight" }
+    $agentCountBefore = [int]$preflight.agentCount
+    if (-not $preflight.agent.targetAgentConfigured -or -not $preflight.agent.isOnline) {
+        return [ordered]@{
+            Success = $false
+            Status = "preflight_failed"
+            AttemptCount = $null
+            AttemptCountIsOne = $false
+            AgentIdentityPreserved = $false
+            AgentCountUnchanged = $false
+            SanitizedResultReturned = $false
+        }
+    }
+
+    $action = if ($CommandType -eq "GET_SIM_STATUS") { "create_get_sim_status" } else { "create" }
+    $create = Invoke-E2ECommandIssuer @{ action = $action }
+    if ([string]::IsNullOrWhiteSpace($create.commandId)) {
+        return [ordered]@{
+            Success = $false
+            Status = "create_failed"
+            AttemptCount = $null
+            AttemptCountIsOne = $false
+            AgentIdentityPreserved = $false
+            AgentCountUnchanged = $false
+            SanitizedResultReturned = $false
+        }
+    }
+
+    $deadline = (Get-Date).AddMinutes(4)
+    $final = $null
+    while ((Get-Date) -lt $deadline) {
+        $status = Invoke-E2ECommandIssuer @{ action = "status"; commandId = $create.commandId }
+        if ($status.status -in @("succeeded", "failed", "expired", "cancelled")) {
+            $final = $status
+            break
+        }
+        Start-Sleep -Seconds 10
+    }
+
+    if ($null -eq $final) {
+        return [ordered]@{
+            Success = $false
+            Status = "timeout"
+            AttemptCount = $null
+            AttemptCountIsOne = $false
+            AgentIdentityPreserved = $false
+            AgentCountUnchanged = $false
+            SanitizedResultReturned = $false
+        }
+    }
+
+    $resultOk = $false
+    $sanitized = $false
+    if ($CommandType -eq "PING") {
+        $resultOk = $final.status -eq "succeeded" -and $final.result.message -eq "pong"
+        $sanitized = $resultOk
+    } else {
+        $resultJson = $final.result | ConvertTo-Json -Depth 12 -Compress
+        $resultOk = $final.status -eq "succeeded" -and $final.result.status -eq "succeeded" -and
+            ($final.result.PSObject.Properties.Name -contains "applications")
+        $sanitized = $resultOk -and
+            ($resultJson -notmatch '(?i)C:\\|executablePath|processId|pid|token|secret|credential')
+    }
+
+    return [ordered]@{
+        Success = [bool]($resultOk -and $sanitized)
+        Status = $final.status
+        AttemptCount = [int]$final.attemptCount
+        AttemptCountIsOne = ([int]$final.attemptCount -eq 1)
+        AgentIdentityPreserved = [bool]$final.agent.targetAgentConfigured
+        AgentCountUnchanged = ([int]$final.agentCount -eq $agentCountBefore)
+        SanitizedResultReturned = [bool]$sanitized
+    }
+}
+
 function Restore-Backup {
     param(
         [string] $BackupPath,
@@ -275,6 +517,17 @@ function Restore-Backup {
             Remove-Item -Path $sessionHostDirectory -Recurse -Force
         }
         Copy-Item -Path $SessionHostBackupPath -Destination $sessionHostDirectory -Recurse -Force
+    }
+    $interactive = Get-InteractiveUserContext
+    if ($interactive) {
+        $startupPath = Join-Path $interactive.ProfilePath "AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup"
+        New-Directory $startupPath
+        $shortcutPath = Join-Path $startupPath $sessionHostShortcutName
+        $wsh = New-Object -ComObject WScript.Shell
+        $shortcut = $wsh.CreateShortcut($shortcutPath)
+        $shortcut.TargetPath = $sessionHostExePath
+        $shortcut.WorkingDirectory = $sessionHostDirectory
+        $shortcut.Save()
     }
     Start-Service -Name $serviceName
     return $true
@@ -304,8 +557,14 @@ $approvedAppsExistedBefore = Test-Path $approvedAppsPath
 $validation = [ordered]@{
     Success = $false
     InstalledSimAgentCommit = $InstalledSimAgentCommit
-    BackupPath = $backupPath
-    SessionHostBackupPath = $sessionHostBackupPath
+    Backup = [ordered]@{
+        ServicePresent = $false
+        SessionHostPresent = $false
+        SharedAssembliesPresent = $false
+        StartupRegistrationCaptured = $false
+        ManifestPresent = $false
+    }
+    PackageConsistency = $null
     PreflightBefore = $null
     PreflightAfter = $null
     ServiceBefore = $null
@@ -317,14 +576,24 @@ $validation = [ordered]@{
     SessionHostStartupConfigured = $false
     SessionHostRunning = $false
     SessionHostInteractiveSession = $false
-    SessionHostPipeAvailable = $false
+    SessionHostProcessCount = 0
+    PipeConnectionResult = $null
+    HandshakeResult = $null
+    SecurePingResult = $null
+    GetSimStatusResult = $null
+    AgentIdentityPreservation = $null
     AgentCountUnchanged = $false
     ServicePathPreserved = $false
     ServiceStartModePreserved = $false
     PayloadExecutableExists = $false
+    ServiceVersion = $null
+    SessionHostVersion = $null
+    CommitConsistencyResult = "not_checked"
     Rollback = [ordered]@{
         Attempted = $false
         Succeeded = $false
+        ServiceRunning = $null
+        CommitConsistency = $null
     }
     Failures = @()
 }
@@ -353,6 +622,28 @@ try {
     }
     $validation.PayloadExecutableExists = $true
 
+    $payloadManifestPath = Join-Path $PayloadDirectory $manifestFileName
+    $payloadManifestCommit = Get-PackageManifestCommit $payloadManifestPath
+    $payloadServiceVersion = Get-SafeVersionInfo (Join-Path $agentPayloadDirectory "SimAgent.Service.exe")
+    $payloadSessionHostVersion = Get-SafeVersionInfo (Join-Path $sessionHostPayloadDirectory "SimAgent.SessionHost.exe")
+    $expectedCommit = $InstalledSimAgentCommit.ToLowerInvariant()
+    $validation.PackageConsistency = [ordered]@{
+        ServiceCommit = $payloadServiceVersion.Commit
+        SessionHostCommit = $payloadSessionHostVersion.Commit
+        ManifestCommit = $payloadManifestCommit
+        ServiceSharedAssembliesPresent = Test-SharedAssemblies $agentPayloadDirectory
+        SessionHostSharedAssembliesPresent = Test-SharedAssemblies $sessionHostPayloadDirectory
+    }
+    if ($payloadServiceVersion.Commit -ne $expectedCommit -or
+        $payloadSessionHostVersion.Commit -ne $expectedCommit -or
+        $payloadManifestCommit -ne $expectedCommit) {
+        throw "Payload commit markers do not match the requested SimAgent commit."
+    }
+    if (-not $validation.PackageConsistency.ServiceSharedAssembliesPresent -or
+        -not $validation.PackageConsistency.SessionHostSharedAssembliesPresent) {
+        throw "Payload is missing required shared assemblies."
+    }
+
     $preflightBefore = Wait-ForAgentOnline ([TimeSpan]::FromSeconds(90))
     $validation.PreflightBefore = $preflightBefore
     if (-not $preflightBefore -or -not $preflightBefore.agent.targetAgentConfigured) {
@@ -364,7 +655,7 @@ try {
     if (-not $serviceBefore.Exists) {
         throw "SimAgentService is missing."
     }
-    if ($serviceBefore.PathName -notlike "*SimAgent.Service.exe*" -or $serviceBefore.PathName -notlike "*--SimAgent:AgentSettingsPath*") {
+    if (-not $serviceBefore.CanonicalExecutable) {
         throw "SimAgentService does not use the canonical SimAgent.Service executable and config argument."
     }
     if (-not (Test-Path $agentDirectory)) {
@@ -377,6 +668,29 @@ try {
         New-Directory $sessionHostBackupRoot
         Copy-Item -Path $sessionHostDirectory -Destination $sessionHostBackupPath -Recurse -Force
     }
+    $currentServiceVersion = Get-SafeVersionInfo $agentExePath
+    if ($currentServiceVersion.Commit) {
+        Write-VersionManifest $backupPath $currentServiceVersion.Commit $currentServiceVersion.ProductVersion
+        if (Test-Path $sessionHostBackupPath) {
+            Write-VersionManifest $sessionHostBackupPath $currentServiceVersion.Commit $currentServiceVersion.ProductVersion
+        }
+    }
+    $interactiveUser = Get-InteractiveUserContext
+    if ($null -eq $interactiveUser) {
+        throw "Unable to resolve logged-in interactive user."
+    }
+    $startupPath = Join-Path $interactiveUser.ProfilePath "AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup"
+    $startupShortcutPath = Join-Path $startupPath $sessionHostShortcutName
+    $backupStartupDirectory = Join-Path $sessionHostBackupPath "startup-assets"
+    if (Test-Path $startupShortcutPath) {
+        New-Directory $backupStartupDirectory
+        Copy-Item -Path $startupShortcutPath -Destination (Join-Path $backupStartupDirectory $sessionHostShortcutName) -Force
+        $validation.Backup.StartupRegistrationCaptured = $true
+    }
+    $validation.Backup.ServicePresent = Test-Path (Join-Path $backupPath "SimAgent.Service.exe")
+    $validation.Backup.SessionHostPresent = Test-Path (Join-Path $sessionHostBackupPath "SimAgent.SessionHost.exe")
+    $validation.Backup.SharedAssembliesPresent = (Test-SharedAssemblies $backupPath) -and (Test-SharedAssemblies $sessionHostBackupPath)
+    $validation.Backup.ManifestPresent = (Test-Path (Join-Path $backupPath $manifestFileName)) -and (Test-Path (Join-Path $sessionHostBackupPath $manifestFileName))
 
     Stop-SessionHostProcesses
 
@@ -387,12 +701,14 @@ try {
 
     Get-ChildItem -Path $agentDirectory -Force | Remove-Item -Recurse -Force
     Copy-Item -Path (Join-Path $agentPayloadDirectory "*") -Destination $agentDirectory -Recurse -Force
+    Copy-Item -Path $payloadManifestPath -Destination (Join-Path $agentDirectory $manifestFileName) -Force
     if (Test-Path $sessionHostDirectory) {
         Get-ChildItem -Path $sessionHostDirectory -Force | Remove-Item -Recurse -Force
     } else {
         New-Directory $sessionHostDirectory
     }
     Copy-Item -Path (Join-Path $sessionHostPayloadDirectory "*") -Destination $sessionHostDirectory -Recurse -Force
+    Copy-Item -Path $payloadManifestPath -Destination (Join-Path $sessionHostDirectory $manifestFileName) -Force
 
     if (-not (Test-Path $agentSettingsPath)) {
         throw "agentsettings.json disappeared during payload update."
@@ -404,11 +720,6 @@ try {
     }
     $validation.SessionHostExecutableExists = $true
 
-    $interactiveUser = Get-InteractiveUserContext
-    if ($null -eq $interactiveUser) {
-        throw "Unable to resolve logged-in interactive user."
-    }
-    $startupPath = Join-Path $interactiveUser.ProfilePath "AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup"
     New-Directory $startupPath
     $shortcutPath = Join-Path $startupPath $sessionHostShortcutName
     $wsh = New-Object -ComObject WScript.Shell
@@ -433,12 +744,46 @@ try {
     $validation.LegacyServiceAfter = $legacyAfter
     $validation.PreflightAfter = $preflightAfter
     $validation.AgentCountUnchanged = $null -ne $preflightAfter -and [int]$preflightAfter.agentCount -eq [int]$preflightBefore.agentCount
-    $validation.ServicePathPreserved = $serviceAfter.PathName -eq $serviceBefore.PathName
+    $validation.ServicePathPreserved = $serviceAfter.CanonicalExecutable -eq $true -and $serviceBefore.CanonicalExecutable -eq $true
     $validation.ServiceStartModePreserved = $serviceAfter.StartMode -eq $serviceBefore.StartMode
     $sessionHostProcesses = @(Get-Process -Name "SimAgent.SessionHost" -ErrorAction SilentlyContinue)
+    $validation.SessionHostProcessCount = $sessionHostProcesses.Count
     $validation.SessionHostRunning = $sessionHostProcesses.Count -gt 0
     $validation.SessionHostInteractiveSession = @($sessionHostProcesses | Where-Object { $_.SessionId -gt 0 }).Count -gt 0
-    $validation.SessionHostPipeAvailable = Wait-ForSessionHostCommandPipe
+    $serviceVersion = Get-SafeVersionInfo $agentExePath
+    $sessionHostVersion = Get-SafeVersionInfo $sessionHostExePath
+    $installedManifestCommit = Get-PackageManifestCommit (Join-Path $agentDirectory $manifestFileName)
+    $validation.ServiceVersion = [ordered]@{ Commit = $serviceVersion.Commit; ProductVersion = $serviceVersion.ProductVersion }
+    $validation.SessionHostVersion = [ordered]@{ Commit = $sessionHostVersion.Commit; ProductVersion = $sessionHostVersion.ProductVersion }
+    if ($serviceVersion.Commit -eq $expectedCommit -and
+        $sessionHostVersion.Commit -eq $expectedCommit -and
+        $installedManifestCommit -eq $expectedCommit) {
+        $validation.CommitConsistencyResult = "passed"
+    } else {
+        $validation.CommitConsistencyResult = "failed"
+        throw "Installed Service, SessionHost, and manifest commits do not match."
+    }
+
+    $runnerPipe = Wait-ForSessionHostCommandPipe
+    $systemPipe = Invoke-SystemPipeProbe
+    $validation.PipeConnectionResult = [ordered]@{
+        RunnerCanConnect = $runnerPipe.CanConnect
+        LocalSystemCanConnect = $systemPipe.CanConnect
+    }
+    $validation.HandshakeResult = [ordered]@{
+        Runner = [ordered]@{
+            ResponseReceived = $runnerPipe.ResponseReceived
+            ProtocolAccepted = $runnerPipe.ProtocolAccepted
+            SafeResponseReturned = $runnerPipe.Success
+            SafeErrorCode = $runnerPipe.SafeErrorCode
+        }
+        LocalSystem = [ordered]@{
+            ResponseReceived = $systemPipe.ResponseReceived
+            ProtocolAccepted = $systemPipe.ProtocolAccepted
+            SafeResponseReturned = $systemPipe.Success
+            SafeErrorCode = $systemPipe.SafeErrorCode
+        }
+    }
 
     if ($serviceAfter.Status -ne "Running") {
         throw "SimAgentService is not Running after update."
@@ -449,8 +794,11 @@ try {
     if (-not $validation.SessionHostInteractiveSession) {
         throw "SimAgent.SessionHost is not running in an interactive session."
     }
-    if (-not $validation.SessionHostPipeAvailable) {
-        throw "SimAgent.SessionHost command pipe is not available."
+    if ($validation.SessionHostProcessCount -ne 1) {
+        throw "SimAgent.SessionHost process count is not one."
+    }
+    if (-not $runnerPipe.Success -or -not $systemPipe.Success) {
+        throw "SimAgent.SessionHost command pipe handshake failed."
     }
     if ($legacyAfter.Exists) {
         throw "Legacy SimBootstrapAgent service exists after update."
@@ -465,6 +813,22 @@ try {
         throw "Service registration changed during update."
     }
 
+    $ping = Invoke-SecureCommandSmoke "PING"
+    $validation.SecurePingResult = $ping
+    $validation.AgentIdentityPreservation = [ordered]@{
+        AgentIdentityPreserved = $ping.AgentIdentityPreserved
+        AgentCountUnchanged = $ping.AgentCountUnchanged
+    }
+    if (-not $ping.Success -or -not $ping.AttemptCountIsOne -or -not $ping.AgentIdentityPreserved -or -not $ping.AgentCountUnchanged) {
+        throw "Secure PING failed after update."
+    }
+
+    $simStatus = Invoke-SecureCommandSmoke "GET_SIM_STATUS"
+    $validation.GetSimStatusResult = $simStatus
+    if (-not $simStatus.Success -or -not $simStatus.AttemptCountIsOne -or -not $simStatus.SanitizedResultReturned) {
+        throw "GET_SIM_STATUS failed after update."
+    }
+
     $validation.Success = $true
 } catch {
     $validation.Failures = @([string]$_.Exception.Message)
@@ -473,6 +837,11 @@ try {
         $rollbackSucceeded = Restore-Backup $backupPath $sessionHostBackupPath
         $validation.ServiceAfter = Get-ServiceSnapshot
         $validation.PreflightAfter = Wait-ForAgentOnline ([TimeSpan]::FromSeconds(90))
+        $rollbackServiceVersion = Get-SafeVersionInfo $agentExePath
+        $rollbackSessionHostVersion = Get-SafeVersionInfo $sessionHostExePath
+        $rollbackService = Get-ServiceSnapshot
+        $validation.Rollback.ServiceRunning = $rollbackService.Status -eq "Running"
+        $validation.Rollback.CommitConsistency = $rollbackServiceVersion.Commit -eq $rollbackSessionHostVersion.Commit
     } catch {
         $validation.Failures += "Rollback failed: $($_.Exception.Message)"
     }

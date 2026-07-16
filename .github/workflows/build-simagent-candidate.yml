@@ -43,23 +43,37 @@ jobs:
           path: SimAgent
           persist-credentials: false
 
+      - name: Test SimAgent solution
+        shell: cmd
+        run: >
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -Command
+          "cd SimAgent;
+          dotnet test SimAgent.sln"
+
       - name: Publish SimAgent Service and SessionHost
         shell: cmd
         run: >
           powershell.exe -NoProfile -ExecutionPolicy Bypass -Command
-          "dotnet publish SimAgent/src/SimAgent.Service/SimAgent.Service.csproj -c Release -r win-x64 --self-contained false -o artifacts/package/Agent;
-          dotnet publish SimAgent/src/SimAgent.SessionHost/SimAgent.SessionHost.csproj -c Release -r win-x64 --self-contained false -o artifacts/package/SessionHost"
+          "$ErrorActionPreference = 'Stop';
+          cd SimAgent;
+          $sha = (git rev-parse HEAD).Trim();
+          cd ..;
+          $version = '1.0.0+' + $sha;
+          dotnet publish SimAgent/src/SimAgent.Service/SimAgent.Service.csproj -c Release -r win-x64 --self-contained false -o artifacts/package/Agent /p:Version=1.0.0 /p:InformationalVersion=$version;
+          dotnet publish SimAgent/src/SimAgent.SessionHost/SimAgent.SessionHost.csproj -c Release -r win-x64 --self-contained false -o artifacts/package/SessionHost /p:Version=1.0.0 /p:InformationalVersion=$version;
+          [ordered]@{
+            sourceCommit = $sha;
+            version = $version;
+            packageKind = 'SimAgent.Service+SessionHost';
+            createdUtc = (Get-Date).ToUniversalTime().ToString('o');
+            includes = @('Agent','SessionHost')
+          } | ConvertTo-Json -Depth 4 | Set-Content -Path artifacts/package/version-manifest.json -Encoding UTF8"
 
       - name: Verify publish output
         shell: cmd
         run: >
-          powershell.exe -NoProfile -ExecutionPolicy Bypass -Command
-          "if (-not (Test-Path 'artifacts/package/Agent/SimAgent.Service.exe')) {
-            throw 'Published SimAgent.Service payload is missing SimAgent.Service.exe.'
-          };
-          if (-not (Test-Path 'artifacts/package/SessionHost/SimAgent.SessionHost.exe')) {
-            throw 'Published SimAgent.SessionHost payload is missing SimAgent.SessionHost.exe.'
-          }"
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\windows-test-node\Test-AgentPayload.ps1
+          -PayloadDirectory "artifacts\package"
 
       - name: Compress Release Archive
         shell: cmd

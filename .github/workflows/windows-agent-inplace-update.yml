@@ -52,6 +52,7 @@ jobs:
         run: >
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\windows-test-node\Test-AgentPayload.ps1
           -PayloadDirectory "artifacts\simagent-service-win-x64"
+          -ExpectedCommit "${{ inputs.simagent_commit }}"
 
       - name: In-place update SimAgentService
         shell: cmd
