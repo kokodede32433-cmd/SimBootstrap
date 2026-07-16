@@ -362,11 +362,12 @@ try {
     }
     if (Test-PrincipalHasBroadAccess -Acl $acl -Identity $interactiveUser) {
         $acl.SetAccessRuleProtection($true, $false)
-        [void](Remove-DirectRules -Acl $acl -Identity $interactiveUser)
+        $interactiveAccount = New-Object System.Security.Principal.NTAccount($interactiveUser)
+        $acl.PurgeAccessRules($interactiveAccount)
         [void](Remove-DirectBroadRules -Acl $acl -Identity $everyoneUser)
         [void](Remove-DirectBroadRules -Acl $acl -Identity $usersUser)
-        $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($systemUser, "FullControl", "Allow")))
-        $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($adminsUser, "FullControl", "Allow")))
+        $acl.SetAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($systemUser, "FullControl", "Allow")))
+        $acl.SetAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($adminsUser, "FullControl", "Allow")))
         $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($interactiveUser, "ReadAndExecute", "Allow")))
         Set-Acl -LiteralPath $approvedAppsPath -AclObject $acl
         $acl = Get-Acl -LiteralPath $approvedAppsPath
