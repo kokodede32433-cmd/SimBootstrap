@@ -340,11 +340,16 @@ New-Directory $artifactDirectory
 
 $sessionHostProcesses = @(Get-Process -Name "SimAgent.SessionHost" -ErrorAction SilentlyContinue)
 $processInfo = @($sessionHostProcesses | ForEach-Object {
+    $startTimeUtc = $null
+    $hasExited = $false
+    try { $startTimeUtc = $_.StartTime.ToUniversalTime().ToString("o") } catch { $startTimeUtc = $null }
+    try { $hasExited = $_.HasExited } catch { $hasExited = $false }
+
     [ordered]@{
         SessionId = $_.SessionId
         InteractiveSession = $_.SessionId -gt 0
-        StartTimeUtc = try { $_.StartTime.ToUniversalTime().ToString("o") } catch { $null }
-        HasExited = try { $_.HasExited } catch { $false }
+        StartTimeUtc = $startTimeUtc
+        HasExited = $hasExited
     }
 })
 
