@@ -124,7 +124,10 @@ function Get-BackupAudit {
         }
     }
 
-    $timestamps = @($agentBackups.Keys + $sessionBackups.Keys | Sort-Object -Descending -Unique)
+    $timestamps = @(
+        @($agentBackups.Keys) + @($sessionBackups.Keys) |
+            Sort-Object -Descending -Unique
+    )
     $items = @()
     $index = 0
     foreach ($ts in $timestamps) {
@@ -523,7 +526,12 @@ try {
         throw "agentsettings.json missing; refusing recovery to preserve identity."
     }
 
-    $audit = Get-BackupAudit
+    try {
+        $audit = Get-BackupAudit
+    } catch {
+        $report.RemainingBlocker = "BACKUP_AUDIT_FAILED"
+        throw "Backup audit failed."
+    }
     $report.AvailableBackupSummary = Get-PublicBackupSummary $audit
     if ($audit.Count -eq 0) {
         $report.RemainingBlocker = "NO_BACKUPS_AVAILABLE"
