@@ -117,6 +117,25 @@ function Test-PrincipalHasBroadAccess {
     return $false
 }
 
+function Remove-DirectBroadRules {
+    param(
+        [Parameter(Mandatory = $true)] $Acl,
+        [Parameter(Mandatory = $true)] [string] $Identity
+    )
+
+    $changed = $false
+    $rules = @($Acl.GetAccessRules($true, $false, [System.Security.Principal.NTAccount]))
+    foreach ($rule in $rules) {
+        if ($rule.AccessControlType -eq "Allow" -and
+            [string]::Equals($rule.IdentityReference.Value, $Identity, [System.StringComparison]::OrdinalIgnoreCase) -and
+            (Test-RuleAllowsBroadWrite $rule)) {
+            $Acl.RemoveAccessRuleSpecific($rule)
+            $changed = $true
+        }
+    }
+    return $changed
+}
+
 function Invoke-StatusPoll {
     param(
         [Parameter(Mandatory = $true)] [string] $CommandId,
@@ -296,13 +315,26 @@ try {
     $everyoneUser = Get-PrincipalNameFromSid "S-1-1-0"
     $usersUser = Get-PrincipalNameFromSid "S-1-5-32-545"
 
-    $acl = Get-Acl -LiteralPath $approvedAppsPath
     $aclChanged = $false
+    $acl = Get-Acl -LiteralPath $approvedAppsPath
+    $aclChanged = (Remove-DirectBroadRules -Acl $acl -Identity $interactiveUser) -or $aclChanged
+    $aclChanged = (Remove-DirectBroadRules -Acl $acl -Identity $everyoneUser) -or $aclChanged
+    $aclChanged = (Remove-DirectBroadRules -Acl $acl -Identity $usersUser) -or $aclChanged
+    if (-not (Test-PrincipalHasRead -Acl $acl -Identity $systemUser)) {
+        $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($systemUser, "FullControl", "Allow")))
+        $aclChanged = $true
+    }
+    if (-not (Test-PrincipalHasRead -Acl $acl -Identity $adminsUser)) {
+        $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($adminsUser, "FullControl", "Allow")))
+        $aclChanged = $true
+    }
     if (-not (Test-PrincipalHasRead -Acl $acl -Identity $interactiveUser)) {
         $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($interactiveUser, "ReadAndExecute", "Allow")))
+        $aclChanged = $true
+    }
+    if ($aclChanged) {
         Set-Acl -LiteralPath $approvedAppsPath -AclObject $acl
         $acl = Get-Acl -LiteralPath $approvedAppsPath
-        $aclChanged = $true
     }
 
     $aclResult = [ordered]@{
