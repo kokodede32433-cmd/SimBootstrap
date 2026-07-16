@@ -143,6 +143,23 @@ function Remove-DirectBroadRules {
     return $changed
 }
 
+function Remove-DirectRules {
+    param(
+        [Parameter(Mandatory = $true)] $Acl,
+        [Parameter(Mandatory = $true)] [string] $Identity
+    )
+
+    $changed = $false
+    $rules = @($Acl.GetAccessRules($true, $true, [System.Security.Principal.NTAccount]))
+    foreach ($rule in $rules) {
+        if ([string]::Equals($rule.IdentityReference.Value, $Identity, [System.StringComparison]::OrdinalIgnoreCase)) {
+            $Acl.RemoveAccessRuleSpecific($rule)
+            $changed = $true
+        }
+    }
+    return $changed
+}
+
 function Invoke-StatusPoll {
     param(
         [Parameter(Mandatory = $true)] [string] $CommandId,
@@ -344,11 +361,13 @@ try {
         $acl = Get-Acl -LiteralPath $approvedAppsPath
     }
     if (Test-PrincipalHasBroadAccess -Acl $acl -Identity $interactiveUser) {
-        $acl.SetAccessRuleProtection($true, $true)
-        [void](Remove-DirectBroadRules -Acl $acl -Identity $interactiveUser)
-        if (-not (Test-PrincipalHasRead -Acl $acl -Identity $interactiveUser)) {
-            $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($interactiveUser, "ReadAndExecute", "Allow")))
-        }
+        $acl.SetAccessRuleProtection($true, $false)
+        [void](Remove-DirectRules -Acl $acl -Identity $interactiveUser)
+        [void](Remove-DirectBroadRules -Acl $acl -Identity $everyoneUser)
+        [void](Remove-DirectBroadRules -Acl $acl -Identity $usersUser)
+        $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($systemUser, "FullControl", "Allow")))
+        $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($adminsUser, "FullControl", "Allow")))
+        $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($interactiveUser, "ReadAndExecute", "Allow")))
         Set-Acl -LiteralPath $approvedAppsPath -AclObject $acl
         $acl = Get-Acl -LiteralPath $approvedAppsPath
         $aclChanged = $true
