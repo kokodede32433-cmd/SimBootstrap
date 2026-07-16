@@ -1,0 +1,43 @@
+name: Windows SessionHost Runtime Diagnostics
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_simagent_commit:
+        description: "Expected installed SimAgent commit, if known"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose-sessionhost:
+    name: Diagnose installed SessionHost on Windows Test Node
+    runs-on:
+      - self-hosted
+      - Windows
+      - X64
+      - simplatform-windows-test
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout SimBootstrap
+        uses: actions/checkout@v4
+
+      - name: Run SessionHost runtime diagnostics
+        shell: cmd
+        run: >
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\windows-test-node\Invoke-SessionHostRuntimeDiagnostics.ps1
+          -RunId "${{ github.run_id }}-${{ github.run_attempt }}"
+          -ExpectedSimAgentCommit "${{ inputs.expected_simagent_commit }}"
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-sessionhost-runtime-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: C:\SimPlatformTestNode\runs\${{ github.run_id }}-${{ github.run_attempt }}\artifacts
+          if-no-files-found: error
+          retention-days: 14
