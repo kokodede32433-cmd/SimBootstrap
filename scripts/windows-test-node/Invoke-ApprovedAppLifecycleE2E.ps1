@@ -337,6 +337,16 @@ try {
         Set-Acl -LiteralPath $approvedAppsPath -AclObject $acl
         $acl = Get-Acl -LiteralPath $approvedAppsPath
     }
+    if (Test-PrincipalHasBroadAccess -Acl $acl -Identity $interactiveUser) {
+        $acl.SetAccessRuleProtection($true, $true)
+        [void](Remove-DirectBroadRules -Acl $acl -Identity $interactiveUser)
+        if (-not (Test-PrincipalHasRead -Acl $acl -Identity $interactiveUser)) {
+            $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($interactiveUser, "ReadAndExecute", "Allow")))
+        }
+        Set-Acl -LiteralPath $approvedAppsPath -AclObject $acl
+        $acl = Get-Acl -LiteralPath $approvedAppsPath
+        $aclChanged = $true
+    }
 
     $aclResult = [ordered]@{
         SessionHostCanRead = $false
