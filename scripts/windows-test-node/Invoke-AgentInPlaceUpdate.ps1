@@ -250,7 +250,10 @@ function Wait-ForAgentOnline {
 }
 
 function Restore-Backup {
-    param([string] $BackupPath)
+    param(
+        [string] $BackupPath,
+        [string] $SessionHostBackupPath
+    )
 
     if ([string]::IsNullOrWhiteSpace($BackupPath) -or -not (Test-Path $BackupPath)) {
         return $false
@@ -267,6 +270,12 @@ function Restore-Backup {
         Remove-Item -Path $agentDirectory -Recurse -Force
     }
     Copy-Item -Path $BackupPath -Destination $agentDirectory -Recurse -Force
+    if (-not [string]::IsNullOrWhiteSpace($SessionHostBackupPath) -and (Test-Path $SessionHostBackupPath)) {
+        if (Test-Path $sessionHostDirectory) {
+            Remove-Item -Path $sessionHostDirectory -Recurse -Force
+        }
+        Copy-Item -Path $SessionHostBackupPath -Destination $sessionHostDirectory -Recurse -Force
+    }
     Start-Service -Name $serviceName
     return $true
 }
@@ -461,7 +470,7 @@ try {
     $validation.Failures = @([string]$_.Exception.Message)
     try {
         $rollbackAttempted = $true
-        $rollbackSucceeded = Restore-Backup $backupPath
+        $rollbackSucceeded = Restore-Backup $backupPath $sessionHostBackupPath
         $validation.ServiceAfter = Get-ServiceSnapshot
         $validation.PreflightAfter = Wait-ForAgentOnline ([TimeSpan]::FromSeconds(90))
     } catch {

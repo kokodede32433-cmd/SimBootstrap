@@ -79,6 +79,20 @@ function Get-SafeFileVersion {
     }
 }
 
+function Get-CommitFromProductVersion {
+    param([object] $VersionInfo)
+
+    if ($null -eq $VersionInfo -or [string]::IsNullOrWhiteSpace($VersionInfo.ProductVersion)) {
+        return $null
+    }
+
+    if ($VersionInfo.ProductVersion -match "\+([0-9a-fA-F]{40})") {
+        return $matches[1].ToLowerInvariant()
+    }
+
+    return $null
+}
+
 function ConvertTo-SafeErrorCode {
     param([string] $Text)
 
@@ -370,7 +384,15 @@ $pipeCreationStage = if (@($markerSequence | Where-Object { $_.Marker -eq "COMMA
     "NO_STARTUP_MARKERS"
 }
 
-$classification = if ($sessionHostProcesses.Count -eq 0) {
+$installedSessionHostVersion = Get-SafeFileVersion $sessionHostExePath
+$installedServiceVersion = Get-SafeFileVersion $serviceExePath
+$installedSessionHostCommit = Get-CommitFromProductVersion $installedSessionHostVersion
+$installedServiceCommit = Get-CommitFromProductVersion $installedServiceVersion
+$installedCommitVerifiable = -not [string]::IsNullOrWhiteSpace($installedSessionHostCommit)
+
+$classification = if ($installedSessionHostCommit -and $installedServiceCommit -and $installedSessionHostCommit -ne $installedServiceCommit) {
+    "MIXED_SERVICE_SESSIONHOST_COMMITS"
+} elseif ($sessionHostProcesses.Count -eq 0) {
     "SESSION_HOST_NOT_RUNNING"
 } elseif ($pipeCreationStage -eq "NO_STARTUP_MARKERS") {
     "INSTALLED_BUILD_HAS_NO_STARTUP_MARKERS"
@@ -392,9 +414,11 @@ if (-not [string]::IsNullOrWhiteSpace($ExpectedSimAgentCommit)) {
 $report = [ordered]@{
     GeneratedAtUtc = (Get-Date).ToUniversalTime().ToString("o")
     ExpectedSimAgentCommit = $expectedCommitValue
-    InstalledCommitVerifiable = $false
-    InstalledSessionHostVersion = Get-SafeFileVersion $sessionHostExePath
-    InstalledServiceVersion = Get-SafeFileVersion $serviceExePath
+    InstalledCommitVerifiable = $installedCommitVerifiable
+    InstalledSessionHostCommit = $installedSessionHostCommit
+    InstalledServiceCommit = $installedServiceCommit
+    InstalledSessionHostVersion = $installedSessionHostVersion
+    InstalledServiceVersion = $installedServiceVersion
     SessionHostProcessCount = $sessionHostProcesses.Count
     SessionHostProcesses = $processInfo
     StartupMarkerSequence = @($markerSequence)
