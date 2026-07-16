@@ -575,6 +575,7 @@ try {
         throw "Staged backup commits differ."
     }
 
+    $report.RestoreResult = "restore_in_progress"
     Stop-AgentProcesses
 
     $oldAgent = Join-Path $runDirectory "previous-Agent"
@@ -594,6 +595,7 @@ try {
         throw "Restored Service and SessionHost commits differ."
     }
     $report.CommitConsistencyResult = "passed"
+    $report.RestoreResult = "restored"
 
     $startup = Restore-StartupRegistration
     if (-not $startup.Success) {
@@ -669,14 +671,19 @@ try {
         throw "GET_SIM_STATUS failed."
     }
 
-    $report.RestoreResult = "restored"
     $report.Success = $true
     $report.RemainingBlocker = "none"
 } catch {
     if ([string]::IsNullOrWhiteSpace($report.RemainingBlocker)) {
         $report.RemainingBlocker = "RECOVERY_FAILED"
     }
-    $report.RestoreResult = if ($report.RestoreResult -eq "not_started") { "failed_before_restore" } else { "failed" }
+    $report.RestoreResult = if ($report.RestoreResult -eq "not_started") {
+        "failed_before_restore"
+    } elseif ($report.RestoreResult -eq "restored") {
+        "restored_then_failed_validation"
+    } else {
+        "failed"
+    }
     Write-Host "Recovery stopped: $($report.RemainingBlocker)"
     Write-JsonFile $report $reportPath
     Write-JsonFile $report (Join-Path $artifactDirectory "validation-report.json")
