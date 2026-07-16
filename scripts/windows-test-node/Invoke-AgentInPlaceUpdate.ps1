@@ -65,6 +65,23 @@ function ConvertTo-RedactedText {
     return $redacted
 }
 
+function Copy-RecentLogs {
+    param([string] $Subdirectory = "logs")
+
+    try {
+        $recentLogs = @(
+            Get-ChildItem -Path (Join-Path $programDataRoot "logs") -File -ErrorAction SilentlyContinue
+            Get-ChildItem -Path (Join-Path $agentDirectory "logs") -File -ErrorAction SilentlyContinue
+            Get-ChildItem -Path (Join-Path $sessionHostDirectory "logs") -File -ErrorAction SilentlyContinue
+        ) | Where-Object { $_.LastWriteTime -gt (Get-Date).AddMinutes(-15) } | Select-Object -First 20
+        foreach ($log in $recentLogs) {
+            $destination = Join-Path $artifactDirectory (Join-Path $Subdirectory ($log.Name + ".redacted.txt"))
+            New-Directory (Split-Path -Parent $destination)
+            ConvertTo-RedactedText (Get-Content -Raw -Path $log.FullName) | Set-Content -Path $destination -Encoding UTF8
+        }
+    } catch {}
+}
+
 function Assert-RequiredSecret {
     param(
         [Parameter(Mandatory = $true)] [string] $Name,
@@ -832,6 +849,7 @@ try {
     $validation.Success = $true
 } catch {
     $validation.Failures = @([string]$_.Exception.Message)
+    Copy-RecentLogs "failed-install-logs"
     try {
         $rollbackAttempted = $true
         $rollbackSucceeded = Restore-Backup $backupPath $sessionHostBackupPath
@@ -852,18 +870,7 @@ try {
 Write-JsonFile $validation $validationReportPath
 Write-JsonFile $validation (Join-Path $artifactDirectory "validation-report.json")
 
-try {
-    $recentLogs = @(
-        Get-ChildItem -Path (Join-Path $programDataRoot "logs") -File -ErrorAction SilentlyContinue
-        Get-ChildItem -Path (Join-Path $agentDirectory "logs") -File -ErrorAction SilentlyContinue
-        Get-ChildItem -Path (Join-Path $sessionHostDirectory "logs") -File -ErrorAction SilentlyContinue
-    ) | Where-Object { $_.LastWriteTime -gt (Get-Date).AddMinutes(-15) } | Select-Object -First 10
-    foreach ($log in $recentLogs) {
-        $destination = Join-Path $artifactDirectory ("logs\" + $log.Name + ".redacted.txt")
-        New-Directory (Split-Path -Parent $destination)
-        ConvertTo-RedactedText (Get-Content -Raw -Path $log.FullName) | Set-Content -Path $destination -Encoding UTF8
-    }
-} catch {}
+Copy-RecentLogs "logs"
 
 if (-not $validation.Success) {
     throw "In-place SimAgent update failed: $($validation.Failures -join '; ')"
