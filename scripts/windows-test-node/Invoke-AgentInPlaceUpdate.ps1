@@ -410,7 +410,17 @@ function Invoke-E2ECommandIssuer {
         Authorization = "Bearer $($env:SIMCRM_STAGING_PAIR_CODE_TOKEN)"
         "Content-Type" = "application/json"
     }
-    return Invoke-RestMethod -Method Post -Uri $issuerUrl -Headers $headers -Body ($Body | ConvertTo-Json -Compress)
+    $bodyJson = $Body | ConvertTo-Json -Compress
+    $lastError = $null
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        try {
+            return Invoke-RestMethod -Method Post -Uri $issuerUrl -Headers $headers -Body $bodyJson
+        } catch {
+            $lastError = $_
+            Start-Sleep -Seconds (2 * $attempt)
+        }
+    }
+    throw $lastError
 }
 
 function Wait-ForAgentOnline {
