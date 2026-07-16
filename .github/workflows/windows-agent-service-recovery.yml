@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       backup_index:
-        description: "0 = newest backup, 1 = previous backup, etc."
+        description: "-1 = newest internally consistent backup, 0 = newest backup, 1 = previous backup, etc."
         required: true
-        default: "1"
+        default: "-1"
         type: string
 
 permissions:
@@ -14,23 +14,37 @@ permissions:
 
 jobs:
   recover-service:
-    name: Start Existing SimAgentService
+    name: Restore Consistent SimAgentService and SessionHost
     runs-on:
       - self-hosted
       - Windows
       - X64
       - simplatform-windows-test
-    timeout-minutes: 5
+    timeout-minutes: 12
 
     steps:
       - name: Checkout SimBootstrap
         uses: actions/checkout@v4
 
-      - name: Restore latest Agent backup and start service
+      - name: Restore matched Agent and SessionHost backup
         shell: cmd
         env:
           BACKUP_INDEX: ${{ inputs.backup_index }}
+          RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+          SIMCRM_STAGING_SUPABASE_URL: ${{ secrets.SIMCRM_STAGING_SUPABASE_URL }}
+          SIMCRM_STAGING_SUPABASE_ANON_KEY: ${{ secrets.SIMCRM_STAGING_SUPABASE_ANON_KEY }}
+          SIMCRM_STAGING_PAIR_CODE_TOKEN: ${{ secrets.SIMCRM_STAGING_PAIR_CODE_TOKEN }}
         run: >
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File
           scripts\windows-test-node\Invoke-AgentServiceRecovery.ps1
           -BackupIndex "${{ inputs.backup_index }}"
+          -RunId "%RUN_ID%"
+
+      - name: Upload recovery report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-agent-service-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+          path: C:\SimPlatformTestNode\runs\${{ github.run_id }}-${{ github.run_attempt }}\artifacts
+          if-no-files-found: warn
+          retention-days: 14
