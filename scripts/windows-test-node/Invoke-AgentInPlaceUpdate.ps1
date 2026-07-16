@@ -265,7 +265,6 @@ function Test-SessionHostCommandPipe {
             $client.Connect(3000)
             $result.CanConnect = $true
             $client.ReadMode = [System.IO.Pipes.PipeTransmissionMode]::Message
-            $client.ReadTimeout = 3000
             $request = [ordered]@{
                 RequestId = ([guid]::NewGuid()).ToString()
                 Method = "GET_SESSION_STATUS"
@@ -324,7 +323,6 @@ try {
         `$client.Connect(3000)
         `$result.CanConnect = `$true
         `$client.ReadMode = [System.IO.Pipes.PipeTransmissionMode]::Message
-        `$client.ReadTimeout = 3000
         `$request = [ordered]@{ RequestId = ([guid]::NewGuid()).ToString(); Method = "GET_SESSION_STATUS"; ParametersJson = (@{ protocolVersion = "1.0"; applicationId = `$null } | ConvertTo-Json -Compress); TimestampUtc = (Get-Date).ToUniversalTime().ToString("o") } | ConvertTo-Json -Compress
         `$bytes = [System.Text.Encoding]::UTF8.GetBytes(`$request)
         `$client.Write(`$bytes, 0, `$bytes.Length)
