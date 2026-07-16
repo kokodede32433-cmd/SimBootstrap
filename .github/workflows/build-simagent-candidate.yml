@@ -54,21 +54,10 @@ jobs:
       - name: Publish SimAgent Service and SessionHost
         shell: cmd
         run: >
-          powershell.exe -NoProfile -ExecutionPolicy Bypass -Command
-          "$ErrorActionPreference = 'Stop';
-          cd SimAgent;
-          $sha = (git rev-parse HEAD).Trim();
-          cd ..;
-          $version = '1.0.0+' + $sha;
-          dotnet publish SimAgent/src/SimAgent.Service/SimAgent.Service.csproj -c Release -r win-x64 --self-contained false -o artifacts/package/Agent /p:Version=1.0.0 /p:InformationalVersion=$version;
-          dotnet publish SimAgent/src/SimAgent.SessionHost/SimAgent.SessionHost.csproj -c Release -r win-x64 --self-contained false -o artifacts/package/SessionHost /p:Version=1.0.0 /p:InformationalVersion=$version;
-          [ordered]@{
-            sourceCommit = $sha;
-            version = $version;
-            packageKind = 'SimAgent.Service+SessionHost';
-            createdUtc = (Get-Date).ToUniversalTime().ToString('o');
-            includes = @('Agent','SessionHost')
-          } | ConvertTo-Json -Depth 4 | Set-Content -Path artifacts/package/version-manifest.json -Encoding UTF8"
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File
+          scripts\windows-test-node\Build-SimAgentCandidatePackage.ps1
+          -SimAgentDirectory "SimAgent"
+          -OutputDirectory "artifacts"
 
       - name: Verify publish output
         shell: cmd
