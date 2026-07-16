@@ -358,6 +358,8 @@ try {
         SessionHostCanRead = $false
         LocalSystemRead = (Test-PrincipalHasRead -Acl $acl -Identity $systemUser)
         AdministratorsRead = (Test-PrincipalHasRead -Acl $acl -Identity $adminsUser)
+        InteractiveUserRead = (Test-PrincipalHasRead -Acl $acl -Identity $interactiveUser)
+        InteractiveUserBroadAccess = (Test-PrincipalHasBroadAccess -Acl $acl -Identity $interactiveUser)
         InteractiveUserReadOnly = ((Test-PrincipalHasRead -Acl $acl -Identity $interactiveUser) -and -not (Test-PrincipalHasBroadAccess -Acl $acl -Identity $interactiveUser))
         EveryoneBroadAccess = (Test-PrincipalHasBroadAccess -Acl $acl -Identity $everyoneUser)
         UsersBroadAccess = (Test-PrincipalHasBroadAccess -Acl $acl -Identity $usersUser)
