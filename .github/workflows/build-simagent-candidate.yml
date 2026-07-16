@@ -41,6 +41,7 @@ jobs:
           repository: kokodede32433-cmd/SimAgent
           ref: ${{ env.SIMAGENT_COMMIT }}
           path: SimAgent
+          token: ${{ secrets.SIMAGENT_REPO_TOKEN }}
           persist-credentials: false
 
       - name: Test SimAgent solution
