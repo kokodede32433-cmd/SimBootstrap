@@ -282,7 +282,7 @@ function Get-StartupMarkers {
         (Join-Path $sessionHostDirectory "logs"),
         (Join-Path $programDataRoot "logs")
     )
-    $found = New-Object System.Collections.Generic.List[object]
+    $found = @()
     foreach ($root in $logRoots) {
         if (-not (Test-Path $root)) { continue }
         $logs = Get-ChildItem -Path $root -File -ErrorAction SilentlyContinue |
@@ -297,10 +297,10 @@ function Get-StartupMarkers {
                         if ($line -match "PIPE_[A-Z_]+|SESSION_HOST_[A-Z_]+") {
                             $safeError = $matches[0]
                         }
-                        $found.Add([ordered]@{
+                        $found += [ordered]@{
                             Marker = $marker
                             SafeErrorCode = $safeError
-                        })
+                        }
                     }
                 }
             }
@@ -384,9 +384,14 @@ $classification = if ($sessionHostProcesses.Count -eq 0) {
     "SESSION_HOST_PIPE_UNAVAILABLE"
 }
 
+$expectedCommitValue = $null
+if (-not [string]::IsNullOrWhiteSpace($ExpectedSimAgentCommit)) {
+    $expectedCommitValue = $ExpectedSimAgentCommit
+}
+
 $report = [ordered]@{
     GeneratedAtUtc = (Get-Date).ToUniversalTime().ToString("o")
-    ExpectedSimAgentCommit = if ([string]::IsNullOrWhiteSpace($ExpectedSimAgentCommit)) { $null } else { $ExpectedSimAgentCommit }
+    ExpectedSimAgentCommit = $expectedCommitValue
     InstalledCommitVerifiable = $false
     InstalledSessionHostVersion = Get-SafeFileVersion $sessionHostExePath
     InstalledServiceVersion = Get-SafeFileVersion $serviceExePath
