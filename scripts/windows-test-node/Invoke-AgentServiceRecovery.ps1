@@ -50,7 +50,7 @@ function Assert-RequiredSecret {
 function Get-SafeVersionInfo {
     param([string] $Path)
 
-    if (-not (Test-Path $Path)) {
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path $Path)) {
         return [ordered]@{
             Exists = $false
             Commit = $null
