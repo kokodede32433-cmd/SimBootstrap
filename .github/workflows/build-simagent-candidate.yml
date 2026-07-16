@@ -83,4 +83,4 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: >
           powershell.exe -NoProfile -ExecutionPolicy Bypass -Command
-          "gh release create $env:RELEASE_TAG ('artifacts/' + $env:ZIP_NAME) --prerelease --title 'SimAgent SessionHost staging candidate' --notes ('Staging-only SimAgent Service + SessionHost payload. Source commit: ' + $env:SHORT_SHA + '.')"
+          "gh release create $env:RELEASE_TAG ('artifacts/' + $env:ZIP_NAME) --repo '${{ github.repository }}' --prerelease --title 'SimAgent SessionHost staging candidate' --notes ('Staging-only SimAgent Service + SessionHost payload. Source commit: ' + $env:SHORT_SHA + '.')"
